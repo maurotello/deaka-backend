@@ -1,0 +1,29 @@
+#----------------------------------------------------
+#Dependencias
+#----------------------------------------------------
+
+/server/node_modules
+/server/package-lock.json
+
+#----------------------------------------------------
+#Archivos de Entorno (¡CRÍTICO para seguridad!)
+#----------------------------------------------------
+
+.env
+.env.local
+.env.development
+
+#----------------------------------------------------
+#Archivos Generados y Temporales
+#----------------------------------------------------
+
+#Tu servidor Express guarda las imágenes aquí.
+#ESTO NO DEBE SUBIRSE A GIT, ya que se usará Supabase Storage.
+
+/uploads
+
+#Logs y Caché
+
+npm-debug.log*
+yarn-debug.log*
+.DS_Store

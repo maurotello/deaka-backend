@@ -1,34 +1,37 @@
 // server/db.js
-import 'dotenv/config'; // Asegura que las variables de entorno se carguen (para entorno NO Docker)
+import 'dotenv/config'; 
 import pg from 'pg';
 const { Pool } = pg;
 
-// 🔍 LOGS DE DEPURACIÓN - Agrega esto
-console.log('=== VARIABLES DE ENTORNO ===');
-console.log('DB_HOST:', process.env.DB_HOST);
-console.log('DB_PORT:', process.env.DB_PORT);
-console.log('DB_USER:', process.env.DB_USER);
-console.log('DB_NAME:', process.env.DB_NAME);
-console.log('DB_PASSWORD:', process.env.DB_PASSWORD ? '***oculta***' : 'NO DEFINIDA');
-console.log('============================\n');
+// Los logs de depuración son CRUCIALES en el entorno de Render
+//console.log('=== VARIABLES DE ENTORNO EN db.js ===');
+//console.log('DB_HOST:', process.env.DB_HOST);
+//console.log('DB_PORT:', process.env.DB_PORT);
+//console.log('DB_USER:', process.env.DB_USER);
+//console.log('DB_NAME:', process.env.DB_NAME);
+//console.log('DB_PASSWORD:', process.env.DB_PASSWORD ? '***DEFINIDA***' : '❌ NO DEFINIDA');
+//console.log('=====================================\n');
 
 
-// 1. Usamos process.env para obtener los valores de Supabase (o Docker).
-// 2. Si las variables no existen (como en el entorno local antes de Docker), usamos los valores del .env.
-//    Esto significa que si no estás en Docker, usará los valores que pusiste en el Canvas.
+// ⚠️ IMPORTANTE: Este Pool ahora depende COMPLETAMENTE de que las variables
+// de entorno estén configuradas correctamente en Render (o en tu .env local).
+
 const pool = new Pool({
-    user: process.env.DB_USER ?? process.env.DB_USER_DEFAULT, // Asumo que tienes una variable de usuario en .env
-    host: process.env.DB_HOST ?? process.env.DB_HOST_DEFAULT,
-    database: process.env.DB_NAME ?? process.env.DB_NAME_DEFAULT,
-    password: process.env.DB_PASSWORD ?? process.env.DB_PASSWORD_DEFAULT,
-    port: process.env.DB_PORT ? parseInt(process.env.DB_PORT) : (process.env.DB_PORT_DEFAULT ? parseInt(process.env.DB_PORT_DEFAULT) : 5432),
+    // Utilizamos las variables que configuraremos en Render
+    user: process.env.DB_USER, 
+    host: process.env.DB_HOST,
+    database: process.env.DB_NAME,
+    password: process.env.DB_PASSWORD,
+    // Convertimos el puerto a número, usando 5432 como fallback si no se define.
+    port: process.env.DB_PORT ? parseInt(process.env.DB_PORT, 10) : 5432,
     
     // 🔥 CONFIGURACIÓN SSL CRÍTICA PARA SUPABASE 🔥
-    // Supabase requiere SSL. Si estás en producción, debes asegurarte que sea true.
-    // Usamos un condicional para asegurar que solo se active si la conexión es externa (Supabase).
+    // Asumimos que si hay un host definido, NO estamos en localhost y necesitamos SSL.
     ssl: process.env.DB_HOST && !process.env.DB_HOST.includes('localhost') ? {
-        rejectUnauthorized: false, // Usar 'false' en desarrollo local para evitar problemas de certificado.
-    } : false, // No usar SSL para conexiones locales (ej: la DB de Docker)
+        rejectUnauthorized: false, // Necesario para entornos cloud como Render
+    } : false, // Desactivar SSL para pruebas locales (ej: Docker)
+
+    connectionTimeoutMillis: 10000,
 });
 
 // Función de prueba para verificar la conexión
@@ -41,8 +44,11 @@ async function testConnection() {
         client.release();
     } catch (err) {
         console.error('❌ ERROR de conexión a la base de datos:', err.message);
-        console.error('Verifica que tu archivo .env tenga las credenciales correctas de Supabase.');
-        // Puedes considerar lanzar un error o terminar la aplicación si la DB es crítica
+        console.error('Verifica que las variables de entorno de Render sean las correctas del Pooler.');
+        // Terminamos el proceso en producción si la conexión a la DB falla
+        if (process.env.NODE_ENV === 'production') {
+            process.exit(1); 
+        }
     }
 }
 

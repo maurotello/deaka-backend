@@ -7,10 +7,29 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import cookieParser from 'cookie-parser'; // Importado correctamente
 
-// 1. Definición ÚNICA y CLARA de las Opciones CORS
+
+// 1. Definir los orígenes permitidos
+const allowedOrigins = [
+    'https://deaka-frontend.vercel.app', // <-- AGREGAR: Dominio de Producción de Vercel
+    'http://localhost:3000',             // <-- Mantener: Para desarrollo local del frontend
+    'http://localhost:3001',             // <-- AGREGAR: Para tu otro puerto local (si aplica)
+];
+
+
 const corsOptions = {
-    origin: 'http://localhost:3000', 
-    credentials: true,    // NECESARIO para enviar y recibir cookies (refresh token)
+    // Usar una función para verificar si el "origin" que llega está en la lista de permitidos
+    origin: (origin, callback) => {
+        // Permitir solicitudes sin origen (como Postman o peticiones del mismo servidor)
+        // O si el origen está en la lista blanca
+        if (!origin || allowedOrigins.includes(origin)) {
+            callback(null, true);
+        } else {
+            // Opcional: registrar el origen bloqueado para debug
+            console.log('CORS blocked origin:', origin); 
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
+    credentials: true, // CRÍTICO para cookies/refresh token
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'], 
 };
 
@@ -57,5 +76,4 @@ app.get('/', (req, res) => {
 
 app.listen(PORT, () => {
   console.log('El valor de JWT_SECRET es:', process.env.JWT_SECRET ? 'Cargado correctamente' : 'UNDEFINED');
-  console.log(`🚀 Servidor backend corriendo en http://localhost:${PORT}`);
 });

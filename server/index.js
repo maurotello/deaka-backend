@@ -6,31 +6,38 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import cookieParser from 'cookie-parser';
-import fs from 'fs/promises';
+import fs from 'fs/promises'; 
 
-// CAMBIO 1: Hacemos la lista de orígenes más robusta y flexible.
-// Ya no necesitamos un array estático, lo manejaremos en la función.
-// const allowedOrigins = [...]; // Ya no es necesario
+// 1. Definir los orígenes permitidos
+const allowedOrigins = [
+    // 1. LOCALHOSTS
+    'http://localhost:3000',
+    'http://localhost:3001',
+    // 2. DOMINIO DE PRODUCCIÓN VERCEL (sin guion)
+    'https://deaka-frontend.vercel.app',
+];
 
-// CAMBIO 2: Mejoramos la lógica de corsOptions para aceptar cualquier subdominio de Vercel.
+// 2. Expresión regular para CUALQUIER dominio de preview de Vercel
+// Acepta: https://deaka-frontend-lz5ywf373-maurotellos-projects.vercel.app
+const VERCEL_PREVIEW_REGEX = /^https:\/\/deaka-frontend-.*\.vercel\.app$/;
+
 const corsOptions = {
     origin: (origin, callback) => {
-        // Permitir solicitudes sin origen (como Postman, apps móviles, etc.)
+        // Permitir solicitudes sin origen (como Postman o peticiones del mismo servidor)
         if (!origin) return callback(null, true);
 
-        // Verificar si el origen es localhost O si pertenece a tu dominio de Vercel
-        const isLocalhost = origin.startsWith('http://localhost:');
-        const isVercel = origin.startsWith('https://deaka-frontend-') && origin.endsWith('.vercel.app');
+        // 3. Verificar si el origen coincide con la lista estática O el patrón dinámico
+        const isAllowed = allowedOrigins.includes(origin) || VERCEL_PREVIEW_REGEX.test(origin);
 
-        if (isLocalhost || isVercel) {
+        if (isAllowed) {
             callback(null, true);
         } else {
             console.log('CORS blocked origin:', origin);
-            callback(new Error('Not allowed by CORS'));
+            callback(new Error(`Not allowed by CORS: ${origin}`));
         }
     },
     credentials: true, // CRÍTICO para cookies/refresh token
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'], // Añadimos OPTIONS
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
 };
 
 import authRoutes from './routes/auth.js';
@@ -46,7 +53,6 @@ const PORT = process.env.PORT || 3001;
 // MIDDLEWARES LIMPIOS Y ORDENADOS
 // =======================================================
 
-// CAMBIO 3: Reordenamos los middlewares para mayor robustez.
 // 1. CORS (DEBE IR PRIMERO para manejar la política de seguridad)
 app.use(cors(corsOptions));
 
@@ -63,12 +69,10 @@ app.use(cookieParser());
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // =======================================================
-// RUTAS PROXY DE GEOREF (DEFINICIÓN)
+// RUTAS PROXY DE GEOREF (LEYENDO ARCHIVOS JSON)
 // =======================================================
 const georefRouter = express.Router();
 
-
-// NUEVO CÓDIGO (leyendo archivo local)
 georefRouter.get('/georef/provincias', async (req, res) => {
     try {
         // Construimos la ruta absoluta al archivo
@@ -84,38 +88,10 @@ georefRouter.get('/georef/provincias', async (req, res) => {
         res.status(200).json(data);
     } catch (error) {
         console.error('Error al leer el archivo de provincias:', error);
-        res.status(500).json({ message: 'Error interno al leer provincias', error: error.message });
+        res.status(500).json({ message: 'Error interno al leer provincias (Verificar si data/provincias.json existe en Render)', error: (error as Error).message });
     }
 });
 
-/*
-georefRouter.get('/georef/provincias', async (req, res) => {
-    try {
-        console.log('Intentando obtener provincias desde la API externa...');
-        const response = await fetch('https://apis.datos.gob.ar/georef/api/provincias?campos=id,nombre');
-        
-        if (!response.ok) {
-            console.error('La API externa respondió con error:', response.status, response.statusText);
-            return res.status(response.status).json({ 
-                message: 'Error de la API de Georef', 
-                status: response.status,
-                statusText: response.statusText
-            });
-        }
-        
-        const data = await response.json();
-        console.log('Provincias obtenidas correctamente:', data.provincias?.length || 0);
-        res.status(200).json(data);
-    } catch (error) {
-        console.error('Error fetching provincias:', error);
-        res.status(500).json({ 
-            message: 'Error interno al buscar provincias', 
-            error: error.message 
-        });
-    }
-});
-*/
-// NUEVO CÓDIGO (leyendo archivo local y filtrando)
 georefRouter.get('/georef/localidades/:idProvincia', async (req, res) => {
     const { idProvincia } = req.params;
     
@@ -144,36 +120,17 @@ georefRouter.get('/georef/localidades/:idProvincia', async (req, res) => {
                 max: 1000,
                 campos: ["id", "nombre"]
             },
-            localidades: localidadesFiltradas
+            localidades: localidadesFiltradas.map(l => ({ id: l.id, nombre: l.nombre }))
         };
         
         // Enviamos los datos filtrados
         res.status(200).json(respuesta);
     } catch (error) {
         console.error('Error al leer el archivo de localidades:', error);
-        res.status(500).json({ message: 'Error interno al leer localidades', error: error.message });
+        res.status(500).json({ message: 'Error interno al leer localidades (Verificar si data/localidades.json existe en Render)', error: (error as Error).message });
     }
 });
 
-/*
-georefRouter.get('/georef/localidades/:idProvincia', async (req, res) => {
-    const { idProvincia } = req.params;
-    try {
-        const url = `https://apis.datos.gob.ar/georef/api/localidades?provincia=${idProvincia}&max=1000&campos=id,nombre`;
-        const response = await fetch(url);
-        
-        if (!response.ok) {
-            return res.status(response.status).json({ message: 'Error de la API de Georef', url: url });
-        }
-        
-        const data = await response.json();
-        res.status(200).json(data);
-    } catch (error) {
-        console.error('Error fetching localidades:', error);
-        res.status(500).json({ message: 'Error interno al buscar localidades', error: error.message });
-    }
-});
-*/
 // =======================================================
 // USO DE RUTAS
 // =======================================================
@@ -184,6 +141,7 @@ app.use('/api', georefRouter);
 app.get('/', (req, res) => {
     res.status(200).json({ message: "Atlas Backend API v1.0 running successfully!" });
 });
+
 
 app.listen(PORT, () => {
     console.log('El valor de JWT_SECRET es:', process.env.JWT_SECRET ? 'Cargado correctamente' : 'UNDEFINED');

@@ -7,32 +7,30 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import cookieParser from 'cookie-parser'; 
 
+// CAMBIO 1: Hacemos la lista de orígenes más robusta y flexible.
+// Ya no necesitamos un array estático, lo manejaremos en la función.
+// const allowedOrigins = [...]; // Ya no es necesario
 
-// 1. Definir los orígenes permitidos
-const allowedOrigins = [
-    'https://deaka-frontend.vercel.app', 
-    'http://localhost:3000', 
-    'http://localhost:3001', 
-];
-
-
+// CAMBIO 2: Mejoramos la lógica de corsOptions para aceptar cualquier subdominio de Vercel.
 const corsOptions = {
-    // Usar una función para verificar si el "origin" que llega está en la lista de permitidos
     origin: (origin, callback) => {
-        // Permitir solicitudes sin origen (como Postman o peticiones del mismo servidor)
-        // O si el origen está en la lista blanca
-        if (!origin || allowedOrigins.includes(origin)) {
+        // Permitir solicitudes sin origen (como Postman, apps móviles, etc.)
+        if (!origin) return callback(null, true);
+
+        // Verificar si el origen es localhost O si pertenece a tu dominio de Vercel
+        const isLocalhost = origin.startsWith('http://localhost:');
+        const isVercel = origin.startsWith('https://deaka-frontend-') && origin.endsWith('.vercel.app');
+
+        if (isLocalhost || isVercel) {
             callback(null, true);
         } else {
-            // Opcional: registrar el origen bloqueado para debug
-            console.log('CORS blocked origin:', origin); 
+            console.log('CORS blocked origin:', origin);
             callback(new Error('Not allowed by CORS'));
         }
     },
     credentials: true, // CRÍTICO para cookies/refresh token
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'], 
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'], // Añadimos OPTIONS
 };
-
 
 import authRoutes from './routes/auth.js';
 import listingRoutes from './routes/listings.js';
@@ -47,27 +45,28 @@ const PORT = process.env.PORT || 3001;
 // MIDDLEWARES LIMPIOS Y ORDENADOS
 // =======================================================
 
-// 1. Cookie Parser (DEBE IR PRIMERO para leer req.cookies)
-app.use(cookieParser()); 
+// CAMBIO 3: Reordenamos los middlewares para mayor robustez.
+// 1. CORS (DEBE IR PRIMERO para manejar la política de seguridad)
+app.use(cors(corsOptions));
 
-// 2. CORS (Aplicamos la configuración ÚNICA y estricta)
-app.use(cors(corsOptions)); 
+// 2. Habilitar las peticiones pre-flight (OPTIONS) para todas las rutas
+app.options('*', cors(corsOptions));
 
 // 3. Body Parser para JSON
 app.use(express.json());
 
-// 4. Servir archivos estáticos (uploads)
+// 4. Cookie Parser (para leer req.cookies)
+app.use(cookieParser()); 
+
+// 5. Servir archivos estáticos (uploads)
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // =======================================================
 // RUTAS PROXY DE GEOREF (DEFINICIÓN)
-// Usamos un Router para agrupar las rutas de Georef
 // =======================================================
 const georefRouter = express.Router();
 
-// Ruta: /georef/provincias
 georefRouter.get('/georef/provincias', async (req, res) => {
-    // Usamos fetch nativo de Node.js (v18+)
     try {
         const response = await fetch('https://apis.datos.gob.ar/georef/api/provincias?campos=id,nombre');
         const data = await response.json();
@@ -78,17 +77,13 @@ georefRouter.get('/georef/provincias', async (req, res) => {
     }
 });
 
-// Ruta: /georef/localidades/:idProvincia
 georefRouter.get('/georef/localidades/:idProvincia', async (req, res) => {
     const { idProvincia } = req.params;
-    
-    // Usamos fetch nativo de Node.js (v18+)
     try {
         const url = `https://apis.datos.gob.ar/georef/api/localidades?provincia=${idProvincia}&max=1000&campos=id,nombre`;
         const response = await fetch(url);
         
         if (!response.ok) {
-            // Manejar errores de la API externa
             return res.status(response.status).json({ message: 'Error de la API de Georef', url: url });
         }
         
@@ -100,22 +95,16 @@ georefRouter.get('/georef/localidades/:idProvincia', async (req, res) => {
     }
 });
 
-
 // =======================================================
 // USO DE RUTAS
 // =======================================================
 app.use('/api/auth', authRoutes);
 app.use('/api', listingRoutes);
-
-// Montamos el router de Georef bajo el prefijo /api
-// Las rutas ahora serán /api/georef/provincias
 app.use('/api', georefRouter);
 
-// Ruta de prueba simple para la raíz del servidor
 app.get('/', (req, res) => {
     res.status(200).json({ message: "Atlas Backend API v1.0 running successfully!" });
 });
-
 
 app.listen(PORT, () => {
     console.log('El valor de JWT_SECRET es:', process.env.JWT_SECRET ? 'Cargado correctamente' : 'UNDEFINED');

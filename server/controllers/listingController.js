@@ -209,7 +209,11 @@ export const getListingForEdit = async (req, res) => {
 // CREAR un nuevo listado (Con Multer y PostGIS)
 export const createListing = async (req, res) => {
     const { id: userId } = req.user;
-    
+    // 🚨 LOG PARA DEPURACIÓN: Imprimir todo lo que se recibe
+    console.log('--- RECIBIENDO DATOS EN EL BACKEND ---');
+    console.log('req.body:', req.body);
+    console.log('req.files:', req.files);
+    console.log('------------------------------------');
     // Extraer campos
     const { 
         title, listingTypeId, categoryId, lat, lng, address, 

@@ -88,7 +88,7 @@ georefRouter.get('/georef/provincias', async (req, res) => {
         res.status(200).json(data);
     } catch (error) {
         console.error('Error al leer el archivo de provincias:', error);
-        res.status(500).json({ message: 'Error interno al leer provincias (Verificar si data/provincias.json existe en Render)', error: (error as Error).message });
+        res.status(500).json({ message: 'Error interno al leer provincias (Verificar si data/provincias.json existe en Render)', error: error.message });
     }
 });
 
@@ -127,7 +127,7 @@ georefRouter.get('/georef/localidades/:idProvincia', async (req, res) => {
         res.status(200).json(respuesta);
     } catch (error) {
         console.error('Error al leer el archivo de localidades:', error);
-        res.status(500).json({ message: 'Error interno al leer localidades (Verificar si data/localidades.json existe en Render)', error: (error as Error).message });
+        res.status(500).json({ message: 'Error interno al leer localidades (Verificar si data/localidades.json existe en Render)', error: error.message });
     }
 });
 

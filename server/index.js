@@ -5,7 +5,8 @@ import express from 'express';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import cookieParser from 'cookie-parser'; 
+import cookieParser from 'cookie-parser';
+import fs from 'fs/promises';
 
 // CAMBIO 1: Hacemos la lista de orígenes más robusta y flexible.
 // Ya no necesitamos un array estático, lo manejaremos en la función.
@@ -66,17 +67,95 @@ app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 // =======================================================
 const georefRouter = express.Router();
 
+
+// NUEVO CÓDIGO (leyendo archivo local)
 georefRouter.get('/georef/provincias', async (req, res) => {
     try {
-        const response = await fetch('https://apis.datos.gob.ar/georef/api/provincias?campos=id,nombre');
-        const data = await response.json();
+        // Construimos la ruta absoluta al archivo
+        const filePath = path.join(__dirname, 'data', 'provincias.json');
+        
+        // Leemos el contenido del archivo de forma asíncrona
+        const fileContent = await fs.readFile(filePath, 'utf8');
+        
+        // Parseamos el string a un objeto JSON
+        const data = JSON.parse(fileContent);
+        
+        // Enviamos los datos
         res.status(200).json(data);
     } catch (error) {
-        console.error('Error fetching provincias:', error);
-        res.status(500).json({ message: 'Error interno al buscar provincias', error: error.message });
+        console.error('Error al leer el archivo de provincias:', error);
+        res.status(500).json({ message: 'Error interno al leer provincias', error: error.message });
     }
 });
 
+/*
+georefRouter.get('/georef/provincias', async (req, res) => {
+    try {
+        console.log('Intentando obtener provincias desde la API externa...');
+        const response = await fetch('https://apis.datos.gob.ar/georef/api/provincias?campos=id,nombre');
+        
+        if (!response.ok) {
+            console.error('La API externa respondió con error:', response.status, response.statusText);
+            return res.status(response.status).json({ 
+                message: 'Error de la API de Georef', 
+                status: response.status,
+                statusText: response.statusText
+            });
+        }
+        
+        const data = await response.json();
+        console.log('Provincias obtenidas correctamente:', data.provincias?.length || 0);
+        res.status(200).json(data);
+    } catch (error) {
+        console.error('Error fetching provincias:', error);
+        res.status(500).json({ 
+            message: 'Error interno al buscar provincias', 
+            error: error.message 
+        });
+    }
+});
+*/
+// NUEVO CÓDIGO (leyendo archivo local y filtrando)
+georefRouter.get('/georef/localidades/:idProvincia', async (req, res) => {
+    const { idProvincia } = req.params;
+    
+    try {
+        // Construimos la ruta absoluta al archivo
+        const filePath = path.join(__dirname, 'data', 'localidades.json');
+        
+        // Leemos el contenido del archivo de forma asíncrona
+        const fileContent = await fs.readFile(filePath, 'utf8');
+        
+        // Parseamos el string a un objeto JSON
+        const data = JSON.parse(fileContent);
+        
+        // Filtramos las localidades por el ID de la provincia
+        const localidadesFiltradas = data.localidades.filter(localidad => 
+            localidad.provincia.id === idProvincia
+        );
+        
+        // Construimos la respuesta con la misma estructura que la API original
+        const respuesta = {
+            cantidad: localidadesFiltradas.length,
+            total: localidadesFiltradas.length,
+            inicio: 0,
+            parametros: {
+                provincia: idProvincia,
+                max: 1000,
+                campos: ["id", "nombre"]
+            },
+            localidades: localidadesFiltradas
+        };
+        
+        // Enviamos los datos filtrados
+        res.status(200).json(respuesta);
+    } catch (error) {
+        console.error('Error al leer el archivo de localidades:', error);
+        res.status(500).json({ message: 'Error interno al leer localidades', error: error.message });
+    }
+});
+
+/*
 georefRouter.get('/georef/localidades/:idProvincia', async (req, res) => {
     const { idProvincia } = req.params;
     try {
@@ -94,7 +173,7 @@ georefRouter.get('/georef/localidades/:idProvincia', async (req, res) => {
         res.status(500).json({ message: 'Error interno al buscar localidades', error: error.message });
     }
 });
-
+*/
 // =======================================================
 // USO DE RUTAS
 // =======================================================

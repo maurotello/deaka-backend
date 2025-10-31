@@ -6,7 +6,7 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import cookieParser from 'cookie-parser';
-import fs from 'fs/promises'; 
+import fs from 'fs/promises';
 
 // 1. Definir los orígenes permitidos
 const allowedOrigins = [
@@ -63,7 +63,7 @@ app.options('*', cors(corsOptions));
 app.use(express.json());
 
 // 4. Cookie Parser (para leer req.cookies)
-app.use(cookieParser()); 
+app.use(cookieParser());
 
 // 5. Servir archivos estáticos (uploads)
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
@@ -77,13 +77,13 @@ georefRouter.get('/georef/provincias', async (req, res) => {
     try {
         // Construimos la ruta absoluta al archivo
         const filePath = path.join(__dirname, 'data', 'provincias.json');
-        
+
         // Leemos el contenido del archivo de forma asíncrona
         const fileContent = await fs.readFile(filePath, 'utf8');
-        
+
         // Parseamos el string a un objeto JSON
         const data = JSON.parse(fileContent);
-        
+
         // Enviamos los datos
         res.status(200).json(data);
     } catch (error) {
@@ -94,22 +94,22 @@ georefRouter.get('/georef/provincias', async (req, res) => {
 
 georefRouter.get('/georef/localidades/:idProvincia', async (req, res) => {
     const { idProvincia } = req.params;
-    
+
     try {
         // Construimos la ruta absoluta al archivo
         const filePath = path.join(__dirname, 'data', 'localidades.json');
-        
+
         // Leemos el contenido del archivo de forma asíncrona
         const fileContent = await fs.readFile(filePath, 'utf8');
-        
+
         // Parseamos el string a un objeto JSON
         const data = JSON.parse(fileContent);
-        
+
         // Filtramos las localidades por el ID de la provincia
-        const localidadesFiltradas = data.localidades.filter(localidad => 
+        const localidadesFiltradas = data.localidades.filter(localidad =>
             localidad.provincia.id === idProvincia
         );
-        
+
         // Construimos la respuesta con la misma estructura que la API original
         const respuesta = {
             cantidad: localidadesFiltradas.length,
@@ -122,7 +122,7 @@ georefRouter.get('/georef/localidades/:idProvincia', async (req, res) => {
             },
             localidades: localidadesFiltradas.map(l => ({ id: l.id, nombre: l.nombre }))
         };
-        
+
         // Enviamos los datos filtrados
         res.status(200).json(respuesta);
     } catch (error) {

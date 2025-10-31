@@ -180,16 +180,19 @@ export const createListing = async (req, res) => {
     console.log('------------------------------------');
     // Extraer campos
     const {
-        title, listingTypeId, categoryId, lat, lng, address,
-        details, // 🚨 Puede ser una cadena JSON o un objeto, dependiendo del frontend/middleware
-        provinciaId, localidadId,
-        province, city // <--- CORRECCIÓN 1: Usamos los nombres que envía el frontend
-    } = req.body;
+        title,
+        listing_type_id, // 🚨 CRÍTICO: Debe coincidir con el body
+        category_id,     // 🚨 Recomendación: Cambiar a guiones bajos para consistencia
+        lat, lng, address,
+        details,
+        provinciaId, localidadId,
+        province, city
+        } = req.body;
 
     const tempId = req.tempId;
 
     // 🚨 CORRECCIÓN 2: Asegurar que los campos cruciales estén presentes (incluyendo province y city)
-    if (!title || !categoryId || !lat || !lng || !address || !provinciaId || !localidadId || !province || !city) {
+    if (!title || !category_id || !lat || !lng || !address || !provinciaId || !localidadId || !province || !city) {
         if (tempId) await fs.remove(path.join('uploads', tempId));
         return res.status(400).json({ error: 'Faltan campos obligatorios para el listado o la ubicación.' });
     }
@@ -241,8 +244,8 @@ export const createListing = async (req, res) => {
         const values = [
             userId,
             title,
-            categoryId,
-            listingTypeId,
+            category_id,
+            listing_type_id,
             lng, // Longitud (ST_MakePoint espera Longitud primero)
             lat, // Latitud
             address,

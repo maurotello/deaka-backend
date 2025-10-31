@@ -226,8 +226,21 @@ export const createListing = async (req, res) => {
     }
 
     try {
-        const coverImageFile = req.files.coverImage ? req.files.coverImage[0] : null;
-        const coverImagePath = coverImageFile ? coverImageFile.filename : null;
+
+        // NUEVO CÓDIGO
+
+        //const coverImageFile = req.files.coverImage ? req.files.coverImage[0] : null;
+        //const coverImagePath = coverImageFile ? coverImageFile.filename : null;
+
+        let coverImagePath;
+
+        if (req.files && req.files.coverImage && req.files.coverImage.length > 0) {
+            // Si el usuario subió una imagen, usamos su nombre de archivo
+            coverImagePath = req.files.coverImage[0].filename;
+        } else {
+            // Si NO subió ninguna, usamos la imagen por defecto
+            coverImagePath = 'default-cover.jpg';
+        }
         
         // 🚨 CORRECCIÓN DE ROBUSTEZ: Manejo de JSON del campo 'details'
         let parsedDetails = {};

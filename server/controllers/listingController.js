@@ -98,14 +98,17 @@ export const getMapListings = async (req, res) => {
         
         // 5. Lógica Geoespacial (BBOX)
         if (bbox) {
-            const [minLng, minLat, maxLng, maxLat] = bbox.split(',').map(parseFloat);
-            // Empujamos los 4 valores de BBOX al final de los parámetros
-            queryParams.push(minLng, minLat, maxLng, maxLat);
-            
-            // Calculamos el índice de inicio del BBOX. Es el total de parámetros - 3.
-            const bbox_start_index = queryParams.length - 3; 
-             whereClauses.push(`l.location && ST_MakeEnvelope($${bbox_start_index}, $${bbox_start_index + 1}, $${bbox_start_index + 2}, $${bbox_start_index + 3}, 4326)`);
-        }
+                const [minLng, minLat, maxLng, maxLat] = bbox.split(',').map(parseFloat);
+
+                // 🚨 CORRECCIÓN CRÍTICA: Guardar el índice ANTES de empujar los nuevos parámetros
+                const bbox_start_index = queryParams.length + 1; // El índice del primer nuevo parámetro ($N)
+                
+                // Empujamos los 4 valores de BBOX al final de los parámetros
+                queryParams.push(minLng, minLat, maxLng, maxLat);
+
+                // Los parámetros serán $N, $N+1, $N+2, $N+3
+                whereClauses.push(`l.location && ST_MakeEnvelope($${bbox_start_index}, $${bbox_start_index + 1}, $${bbox_start_index + 2}, $${bbox_start_index + 3}, 4326)`);
+        }
         
         // --- 2. Construcción y Ejecución de la Consulta ---
         

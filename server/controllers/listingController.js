@@ -55,84 +55,59 @@ export const getSubcategories = async (req, res) => { // Renombramos a getSubcat
 
 // OBTENER listings públicos para el mapa (Filtros PostGIS, Búsqueda y Cálculo de Ícono Proporcional)
 export const getMapListings = async (req, res) => {
-
-    const FIXED_ICON_HEIGHT = 38;
-    
-    try {
-        // 🚨 NUEVOS PARÁMETROS DE FILTRO DESDE EL FRONTEND
-        const { search, bbox, categoryIds, listingTypeIds } = req.query;
-        
-        let queryParams = [];
-        let whereClauses = ["l.status = 'published'"];
-        
-        // --- 1. Gestión de Parámetros (El orden es CRÍTICO) ---
-        
-        // 🚨 CRÍTICO: 1. El primer parámetro ($1) es la altura fija para el cálculo.
-        queryParams.push(FIXED_ICON_HEIGHT); // Índice: $1
-        
-        // 2. Filtro por Búsqueda de Texto (Título)
-        if (search && search.length > 2) {
-            queryParams.push(`%${search}%`); 
-            whereClauses.push(`l.title ILIKE $${queryParams.length}`); // Índice: $2 (si no hay filters)
-        }
-        
-        // 3. Filtro por IDs de Categoría (categoryIds)
-        if (categoryIds) {
-            const ids = categoryIds.split(',').map(id => id.trim()).filter(id => id);
-            if (ids.length > 0) {
-                 // 🚨 No usamos un solo parámetro, sino la función ANY para comparar con un array.
-                 queryParams.push(ids);
-                 whereClauses.push(`l.category_id = ANY($${queryParams.length})`);
-            }
-        }
-        
-        // 4. Filtro por Tipos de Listado (listingTypeIds)
-        if (listingTypeIds) {
-            const ids = listingTypeIds.split(',').map(id => id.trim()).filter(id => id);
-            if (ids.length > 0) {
-                 // Usamos ANY para comparar con un array
-                 queryParams.push(ids);
-                 whereClauses.push(`l.listing_type_id = ANY($${queryParams.length})`);
-            }
-        }
-        
-        // 5. Lógica Geoespacial (BBOX)
-        if (bbox) {
-                const [minLng, minLat, maxLng, maxLat] = bbox.split(',').map(parseFloat);
-
-                // 🚨 CORRECCIÓN CRÍTICA: Guardar el índice ANTES de empujar los nuevos parámetros
-                const bbox_start_index = queryParams.length + 1; // El índice del primer nuevo parámetro ($N)
+        const FIXED_ICON_HEIGHT = 38;
+        try {
+                const { search, bbox, categoryIds, listingTypeIds } = req.query;
+                let queryParams = [];
+                let whereClauses = ["l.status = 'published'"];
                 
-                // Empujamos los 4 valores de BBOX al final de los parámetros
-                queryParams.push(minLng, minLat, maxLng, maxLat);
+                queryParams.push(FIXED_ICON_HEIGHT);
+                if (search && search.length > 2) {
+                        queryParams.push(`%${search}%`);
+                        whereClauses.push(`l.title ILIKE $${queryParams.length}`);
+                }
+                if (categoryIds) {
+                        const ids = categoryIds.split(',').map(id => id.trim()).filter(id => id);
+                        if (ids.length > 0) {
+                                queryParams.push(ids);
+                                whereClauses.push(`l.category_id = ANY($${queryParams.length})`);
+                        }
+                }
+                if (listingTypeIds) {
+                        const ids = listingTypeIds.split(',').map(id => id.trim()).filter(id => id);
+                        if (ids.length > 0) {
+                                queryParams.push(ids);
+                                whereClauses.push(`l.listing_type_id = ANY($${queryParams.length})`);
+                        }
+                }
+        
+                if (bbox) {
+                        const [minLng, minLat, maxLng, maxLat] = bbox.split(',').map(parseFloat);
 
-                // Los parámetros serán $N, $N+1, $N+2, $N+3
-                whereClauses.push(`l.location && ST_MakeEnvelope($${bbox_start_index}, $${bbox_start_index + 1}, $${bbox_start_index + 2}, $${bbox_start_index + 3}, 4326)`);
-        }
-        
-        // --- 2. Construcción y Ejecución de la Consulta ---
-        
-        const query = `
-          SELECT 
-            l.id, 
-            l.title, 
-            ST_Y(l.location::geometry) AS latitude, 
-            ST_X(l.location::geometry) AS longitude, 
-            COALESCE(c.marker_icon_slug, 'default-pin') AS marker_icon_slug,
-            
-            -- 🚨 Cálculo de Ancho Proporcional: Usa $1 como altura fija
-            ROUND((COALESCE(c.icon_original_width, 38)::numeric / COALESCE(c.icon_original_height, 38)::numeric) * $1) AS icon_calculated_width,
-            $1 AS icon_calculated_height
-            
-          FROM listings AS l
-          LEFT JOIN categories AS c ON l.category_id = c.id
-          WHERE ${whereClauses.join(' AND ')}
-          LIMIT 50;`;
-          
-        const { rows } = await db.query(query, queryParams);
-        res.status(200).json(rows);
+                        // 🚨 CORRECCIÓN CRÍTICA: Guardar el índice ANTES de empujar los nuevos parámetros
+                        const bbox_start_index = queryParams.length + 1; // El índice del primer nuevo parámetro ($N)
+                        
+                        // Empujamos los 4 valores de BBOX al final de los parámetros
+                        queryParams.push(minLng, minLat, maxLng, maxLat);
 
-    } catch (error) {
+                        // Los parámetros serán $N, $N+1, $N+2, $N+3
+                        whereClauses.push(`l.location && ST_MakeEnvelope($${bbox_start_index}, $${bbox_start_index + 1}, $${bbox_start_index + 2}, $${bbox_start_index + 3}, 4326)`);
+                }
+                const query = `
+                SELECT
+                        l.id,
+                        l.title,
+                        ST_Y(l.location::geometry) AS latitude,
+                        ST_X(l.location::geometry) AS longitude,
+                        COALESCE(c.marker_icon_slug, 'default-pin') AS marker_icon_slug,
+                        ROUND((COALESCE(c.icon_original_width, 38)::numeric / COALESCE(c.icon_original_height, 38)::numeric) * $1) AS icon_calculated_width,
+                        $1 AS icon_calculated_height
+                FROM listings AS l
+                LEFT JOIN categories AS c ON l.category_id = c.id
+                WHERE ${whereClauses.join(' AND ')};`;
+                const { rows } = await db.query(query, queryParams);
+                res.status(200).json(rows);
+        } catch (error) {
         console.error('Error al obtener los listings:', error);
         res.status(500).json({ error: 'Error interno del servidor' });
     }

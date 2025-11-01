@@ -228,7 +228,7 @@ export const createListing = async (req, res) => {
                 const finalDetails = {
                         ...parsedDetails,
                         provincia_id: province_id,
-                        localidad_id: coty_id,
+                        localidad_id: city_id,
                         province_name: province, // Usamos 'province' del body
                         city_name: city, // Usamos 'city' del body
                 };

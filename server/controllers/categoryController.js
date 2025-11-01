@@ -12,14 +12,14 @@ export const getAllCategories = async (req, res) => {
         const { rows } = await db.query(
             'SELECT id, name, slug, parent_id, marker_icon_slug FROM categories ORDER BY parent_id, name'
         );
-        
+
         // 🚨 CRÍTICO: Imprime para ver si la DB devuelve datos antes de enviarlos.
-        console.log('DEBUG: Categorías devueltas:', rows.length, 'filas.'); 
-        
+        //console.log('DEBUG: Categorías devueltas:', rows.length, 'filas.');
+
         res.status(200).json(rows);
     } catch (error) {
         // Asegúrate de que este log esté activo para capturar el error SQL.
-        console.error('ERROR CRÍTICO SQL AL OBTENER CATEGORÍAS:', error); 
+        //console.error('ERROR CRÍTICO SQL AL OBTENER CATEGORÍAS:', error);
         res.status(500).json({ error: 'Error interno del servidor.' });
     }
 };
@@ -82,7 +82,7 @@ export const createCategory = async (req, res) => {
         // Si hay archivo, procesamos con Sharp
         if (file) {
             fileToDelete = file.path;
-            
+
             // Leer dimensiones originales
             const metadata = await sharp(file.path).metadata();
             finalWidth = metadata.width || 38;
@@ -102,8 +102,8 @@ export const createCategory = async (req, res) => {
 
         // Insertar en la base de datos
         const { rows } = await db.query(
-            `INSERT INTO categories (name, slug, parent_id, marker_icon_slug, icon_original_width, icon_original_height) 
-             VALUES ($1, $2, $3, $4, $5, $6) 
+            `INSERT INTO categories (name, slug, parent_id, marker_icon_slug, icon_original_width, icon_original_height)
+             VALUES ($1, $2, $3, $4, $5, $6)
              RETURNING id, name, slug, parent_id, marker_icon_slug`,
             [name, slug, parent_id || null, finalSlug, finalWidth, finalHeight]
         );
@@ -114,7 +114,7 @@ export const createCategory = async (req, res) => {
     } catch (error) {
         console.error('❌ Error al crear categoría:', error);
         if (fileToDelete) await fs.unlink(fileToDelete).catch(e => console.error(e));
-        
+
         if (error.code === '23505') { // Código de error de Postgres para duplicados
             res.status(400).json({ error: 'El slug ya existe. Elige uno diferente.' });
         } else {
@@ -198,9 +198,9 @@ export const updateCategory = async (req, res) => {
 
         // 4. Actualizar en la base de datos
         const { rows } = await db.query(
-            `UPDATE categories 
+            `UPDATE categories
              SET name = $1, slug = $2, parent_id = $3, marker_icon_slug = $4, icon_original_width = $5, icon_original_height = $6
-             WHERE id = $7 
+             WHERE id = $7
              RETURNING id, marker_icon_slug`,
             [name, slug, parent_id || null, finalSlug, finalWidth, finalHeight, id]
         );
@@ -219,7 +219,7 @@ export const updateCategory = async (req, res) => {
 
             for (const ext of extensions) {
                 const oldFilePath = path.join(publicPath, `${oldIconName}${ext}`);
-                await fs.unlink(oldFilePath).catch(() => {}); // Ignorar errores
+                await fs.unlink(oldFilePath).catch(() => { }); // Ignorar errores
             }
             console.log(`🗑️ Archivo antiguo eliminado: ${oldIconName}`);
         }
@@ -252,8 +252,8 @@ export const deleteCategory = async (req, res) => {
         );
 
         if (subcats.length > 0) {
-            return res.status(400).json({ 
-                error: 'No puedes eliminar una categoría que tiene subcategorías. Elimínalas primero.' 
+            return res.status(400).json({
+                error: 'No puedes eliminar una categoría que tiene subcategorías. Elimínalas primero.'
             });
         }
 

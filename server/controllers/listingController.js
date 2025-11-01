@@ -113,7 +113,7 @@ export const getMyListings = async (req, res) => {
         }
         const { id: userId } = req.user;
         try {
-                const query = `SELECT l.id, l.title, l.address, l.details->>'city' AS city, c.name AS category_name, l.status
+                const query = `SELECT l.id, l.title, l.address, l.city, c.name AS category_name, l.status
                 FROM listings AS l
                 JOIN categories AS c ON l.category_id = c.id
                 WHERE l.user_id = $1

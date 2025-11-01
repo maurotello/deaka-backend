@@ -171,6 +171,7 @@ export const getListingForEdit = async (req, res) => {
 // =======================================================
 
 // CREAR un nuevo listado (Con Multer y PostGIS)
+/*
 export const createListing = async (req, res) => {
         const { id: userId } = req.user;
         // 🚨 LOG PARA DEPURACIÓN: Imprimir todo lo que se recibe
@@ -181,14 +182,18 @@ export const createListing = async (req, res) => {
         // Extraer campos
         const {
                 title,
-                listing_type_id, // 🚨 CRÍTICO: Debe coincidir con el body
-                category_id,     // 🚨 Recomendación: Cambiar a guiones bajos para consistencia
-                lat, lng, address,
-                details,
+                listing_type_id,
+                category_id,
+                lat,
+                lng,
+                address,
                 province_id,
                 city_id,
                 province,
-                city
+                city,
+                description,      // 🔥 AÑADIDO
+                opening_hours,    // 🔥 AÑADIDO
+                amenities         // 🔥 AÑADIDO (viene como string JSON)
         } = req.body;
 
         const tempId = req.tempId;
@@ -196,7 +201,20 @@ export const createListing = async (req, res) => {
         // 🚨 CORRECCIÓN 2: Asegurar que los campos cruciales estén presentes (incluyendo province y city)
         if (!title || !category_id || !lat || !lng || !address || !province_id || !city_id || !province || !city) {
                 if (tempId) await fs.remove(path.join('uploads', tempId));
-                return res.status(400).json({ error: 'Faltan campos obligatorios para el listado o la ubicación. en createListing de listingController.js' });
+                return res.status(400).json({
+                error: 'Faltan campos obligatorios para el listado o la ubicación.',
+                missing: {
+                        title: !title,
+                        category_id: !category_id,
+                        lat: !lat,
+                        lng: !lng,
+                        address: !address,
+                        province_id: !province_id,
+                        city_id: !city_id,
+                        province: !province,
+                        city: !city
+                }
+                });
         }
 
         try {
@@ -207,6 +225,17 @@ export const createListing = async (req, res) => {
                 } else {
                         // Si NO subió ninguna, usamos la imagen por defecto
                         coverImagePath = 'default-cover.jpg';
+                }
+
+                // 🔥 CONSTRUCCIÓN DEL OBJETO DETAILS
+                let parsedAmenities = [];
+                if (amenities) {
+                        try {
+                                parsedAmenities = typeof amenities === 'string' ? JSON.parse(amenities) : amenities;
+                        } catch (e) {
+                                console.error("Error al parsear amenities JSON:", e);
+                                // Continuamos con array vacío si falla
+                        }
                 }
                 // 🚨 CORRECCIÓN DE ROBUSTEZ: Manejo de JSON del campo 'details'
                 let parsedDetails = {};
@@ -226,34 +255,40 @@ export const createListing = async (req, res) => {
 
                 // Agregamos los IDs y nombres al campo 'details' para facilitar la edición
                 const finalDetails = {
-                        ...parsedDetails,
                         provincia_id: province_id,
                         localidad_id: city_id,
-                        province_name: province, // Usamos 'province' del body
-                        city_name: city, // Usamos 'city' del body
+                        province_name: province,
+                        city_name: city,
+                        description: description || '',
+                        opening_hours: opening_hours || '',
+                        amenities: parsedAmenities
                 };
                 // 🚨 Inserción con PostGIS (GEOGRAPHY type)
                 const query = `
-                    INSERT INTO listings
-                        (user_id, title, category_id, listing_type_id, location, address, details, cover_image_path, status, city, province)
-                    VALUES
-                        ($1, $2, $3, $4, ST_SetSRID(ST_MakePoint($5, $6), 4326)::geography, $7, $8, $9, 'pending', $10, $11)
-                    RETURNING id;
-                `;
-                // 🚨 CORRECCIÓN 3: Actualizamos los valores para usar 'city' y 'province'
+                        INSERT INTO listings
+                                (user_id, title, category_id, listing_type_id, location, address, details, cover_image_path, status, city, province)
+                        VALUES
+                                ($1, $2, $3, $4, ST_SetSRID(ST_MakePoint($5, $6), 4326)::geography, $7, $8::jsonb, $9, 'pending', $10, $11)
+                        RETURNING id;
+                `;
+
                 const values = [
-                        userId,
-                        title,
-                        category_id,
-                        listing_type_id,
-                        lng, // Longitud (ST_MakePoint espera Longitud primero)
-                        lat, // Latitud
-                        address,
-                        finalDetails, // El objeto JSON se guarda en PostgreSQL
-                        coverImagePath,
-                        city,     // <-- Usamos la variable 'city'
-                        province // <-- Usamos la variable 'province'
+                userId,                           // $1
+                title,                            // $2
+                category_id,                      // $3
+                listing_type_id,                  // $4
+                parseFloat(lng),                  // $5 - Asegurar que sea número
+                parseFloat(lat),                  // $6 - Asegurar que sea número
+                address,                          // $7
+                JSON.stringify(finalDetails),     // $8 - 🔥 CONVERTIR A STRING JSON
+                coverImagePath,                   // $9
+                city,                             // $10
+                province                          // $11
                 ];
+
+                console.log('🔍 Query SQL:', query);
+                console.log('🔍 Valores a insertar:', values);
+
 
                 const result = await db.query(query, values);
                 const newListingId = result.rows[0].id;
@@ -280,7 +315,213 @@ export const createListing = async (req, res) => {
                 res.status(500).json({ error: 'Error interno del servidor.' });
         }
 };
+*/
 
+// =======================================================
+// CREAR UN NUEVO LISTADO (Con Multer y PostGIS)
+// =======================================================
+export const createListing = async (req, res) => {
+    const { id: userId } = req.user;
+
+    // 📋 LOG PARA DEPURACIÓN
+    console.log('=================================================');
+    console.log('📥 RECIBIENDO DATOS EN createListing');
+    console.log('=================================================');
+    console.log('req.body:', req.body);
+    console.log('req.files:', req.files);
+    console.log('req.tempId:', req.tempId);
+    console.log('=================================================');
+
+    // 🔑 EXTRAER CAMPOS DEL BODY
+    const {
+        title,
+        listing_type_id,
+        category_id,
+        lat,
+        lng,
+        address,
+        province_id,
+        city_id,
+        province,
+        city,
+        description,
+        opening_hours,
+        amenities
+    } = req.body;
+
+    const tempId = req.tempId;
+
+    // ✅ VALIDACIÓN: Campos obligatorios
+    if (!title || !category_id || !lat || !lng || !address || !province_id || !city_id || !province || !city) {
+        console.error('❌ VALIDACIÓN FALLIDA: Faltan campos obligatorios');
+        console.error('Campos recibidos:', {
+            title: !!title,
+            category_id: !!category_id,
+            lat: !!lat,
+            lng: !!lng,
+            address: !!address,
+            province_id: !!province_id,
+            city_id: !!city_id,
+            province: !!province,
+            city: !!city
+        });
+
+        // Limpiar archivos temporales si existen
+        if (tempId) {
+            try {
+                await fs.remove(path.join('uploads', tempId));
+                console.log('🧹 Archivos temporales limpiados');
+            } catch (err) {
+                console.error('Error al limpiar temp:', err);
+            }
+        }
+
+        return res.status(400).json({
+            error: 'Faltan campos obligatorios para el listado o la ubicación.',
+            missing: {
+                title: !title,
+                category_id: !category_id,
+                lat: !lat,
+                lng: !lng,
+                address: !address,
+                province_id: !province_id,
+                city_id: !city_id,
+                province: !province,
+                city: !city
+            }
+        });
+    }
+
+    try {
+        // 🖼️ MANEJO DE IMAGEN DE PORTADA
+        let coverImagePath;
+        if (req.files && req.files.coverImage && req.files.coverImage.length > 0) {
+            coverImagePath = req.files.coverImage[0].filename;
+            console.log('✅ Imagen de portada recibida:', coverImagePath);
+        } else {
+            coverImagePath = 'default-cover.jpg';
+            console.log('ℹ️  Usando imagen de portada por defecto');
+        }
+
+        // 🏗️ CONSTRUCCIÓN DEL OBJETO DETAILS (JSONB)
+        let parsedAmenities = [];
+        if (amenities) {
+            try {
+                parsedAmenities = typeof amenities === 'string' ? JSON.parse(amenities) : amenities;
+                console.log('✅ Amenities parseados:', parsedAmenities);
+            } catch (e) {
+                console.error('⚠️  Error al parsear amenities, usando array vacío:', e.message);
+            }
+        }
+
+        const finalDetails = {
+            provincia_id: province_id,
+            localidad_id: city_id,
+            province_name: province,
+            city_name: city,
+            description: description || '',
+            opening_hours: opening_hours || '',
+            amenities: parsedAmenities
+        };
+
+        console.log('🔍 Objeto finalDetails construido:', JSON.stringify(finalDetails, null, 2));
+
+        // 🧪 VALIDAR QUE EL JSON SEA VÁLIDO
+        try {
+            JSON.parse(JSON.stringify(finalDetails));
+            console.log('✅ JSON de details es válido');
+        } catch (jsonError) {
+            console.error('❌ JSON de details INVÁLIDO:', jsonError);
+            throw new Error('El objeto details no puede convertirse a JSON válido');
+        }
+
+        // 🗄️ PREPARAR QUERY SQL CON POSTGIS
+        const query = `
+            INSERT INTO listings
+                (user_id, title, category_id, listing_type_id, location, address, details, cover_image_path, status, city, province)
+            VALUES
+                ($1, $2, $3, $4, ST_SetSRID(ST_MakePoint($5, $6), 4326)::geography, $7, $8::jsonb, $9, 'pending', $10, $11)
+            RETURNING id;
+        `;
+
+        const values = [
+            userId,                           // $1 - ID del usuario
+            title,                            // $2 - Título del listado
+            parseInt(category_id),            // $3 - ID de categoría (asegurar INT)
+            parseInt(listing_type_id),        // $4 - ID de tipo de listado (asegurar INT)
+            parseFloat(lng),                  // $5 - Longitud (PUNTO va lng, lat)
+            parseFloat(lat),                  // $6 - Latitud
+            address,                          // $7 - Dirección
+            JSON.stringify(finalDetails),     // $8 - Details como STRING JSON
+            coverImagePath,                   // $9 - Path de imagen de portada
+            city,                             // $10 - Nombre de ciudad
+            province                          // $11 - Nombre de provincia
+        ];
+
+        console.log('📤 Ejecutando query SQL...');
+        console.log('Query:', query);
+        console.log('Valores:', values.map((v, i) => `${i+1}: ${typeof v} = ${v}`).join('\n'));
+
+        // 💾 EJECUTAR INSERCIÓN EN LA BASE DE DATOS
+        const result = await db.query(query, values);
+        const newListingId = result.rows[0].id;
+
+        console.log('✅ ¡LISTADO CREADO EXITOSAMENTE!');
+        console.log('🆔 Nuevo ID:', newListingId);
+
+        // 📁 MOVER ARCHIVOS DE CARPETA TEMPORAL A PERMANENTE
+        if (tempId) {
+            const tempPath = path.join('uploads', tempId);
+            const finalPath = path.join('uploads', newListingId.toString());
+
+            console.log('📁 Moviendo archivos...');
+            console.log('   De:', tempPath);
+            console.log('   A:', finalPath);
+
+            if (await fs.pathExists(tempPath)) {
+                await fs.copy(tempPath, finalPath);
+                await fs.remove(tempPath);
+                console.log('✅ Archivos movidos correctamente');
+            } else {
+                console.log('ℹ️  No hay carpeta temporal para mover');
+            }
+        }
+
+        console.log('=================================================');
+        console.log('✅ PROCESO COMPLETADO CON ÉXITO');
+        console.log('=================================================');
+
+        res.status(201).json({
+            message: 'Listado creado con éxito',
+            id: newListingId
+        });
+
+    } catch (error) {
+        console.error('=================================================');
+        console.error('❌ ERROR AL CREAR EL LISTADO');
+        console.error('=================================================');
+        console.error('Error completo:', error);
+        console.error('Mensaje:', error.message);
+        console.error('Stack:', error.stack);
+        console.error('Código PG:', error.code);
+        console.error('Detalle PG:', error.detail);
+        console.error('=================================================');
+        // 🧹 LIMPIAR ARCHIVOS TEMPORALES EN CASO DE ERROR
+        if (tempId) {
+            try {
+                await fs.remove(path.join('uploads', tempId));
+                console.log('🧹 Archivos temporales limpiados tras error');
+            } catch (cleanupError) {
+                console.error('⚠️  Error al limpiar archivos temporales:', cleanupError);
+            }
+        }
+        res.status(500).json({
+            error: 'Error interno del servidor al crear el listado.',
+            details: process.env.NODE_ENV === 'development' ? error.message : undefined,
+            pgCode: error.code || undefined
+        });
+    }
+};
 
 // ACTUALIZAR un listado existente (Con Multer y PostGIS)
 export const updateListing = async (req, res) => {

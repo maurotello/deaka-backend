@@ -25,9 +25,9 @@ function verifyToken(req, res, next) {
 
     jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
         if (err) return res.sendStatus(403); // Token no es válido, prohibido
-        
+
         // El token es válido, guardamos el payload (que contiene el id) en el objeto 'req'
-        req.user = user; 
+        req.user = user;
         next(); // Continuamos a la siguiente función (el controlador de la ruta)
     });
 }

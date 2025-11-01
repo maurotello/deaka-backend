@@ -26,18 +26,15 @@ export const getCategories = async (req, res) => {
 // Esta función responderá a /api/categories/:parentId/subcategories
 export const getSubcategories = async (req, res) => { // Renombramos a getSubcategories si quieres mantener la ruta.
         const parentId = req.params.parentId; // Debería llamarse 'parentId' según tu ruta del frontend
-
         // 🚨 SEGURIDAD: Validación básica
         if (!parentId || isNaN(parseInt(parentId))) {
                 return res.status(400).json({ error: 'ID de categoría padre inválido.' });
         }
         try {
-                const query = `
-            SELECT id, name, marker_icon_slug, parent_id
-            FROM categories
-            WHERE parent_id = $1
-            ORDER BY name
-        `;
+                const query = `SELECT id, name, marker_icon_slug, parent_id
+                FROM categories
+                WHERE parent_id = $1
+                ORDER BY name`;
                 const { rows } = await db.query(query, [parentId]);
                 res.status(200).json(rows);
         } catch (error) {
@@ -107,15 +104,20 @@ export const getMapListings = async (req, res) => {
 
 // OBTENER los listados del usuario logueado (PROTEGIDA)
 export const getMyListings = async (req, res) => {
+
+        if (!req.user || !req.user.id) {
+                console.error('❌ ERROR: req.user o req.user.id no está disponible. Posible fallo en verifyToken.');
+                // Aunque verifyToken debería manejar esto con 401/403,
+                // si pasó y está vacío, devolver 403 o 401 aquí es una buena práctica de respaldo.
+                return res.status(403).json({ error: 'Usuario no autenticado o sesión no válida.' });
+        }
         const { id: userId } = req.user;
         try {
-                const query = `
-            SELECT l.id, l.title, l.address, l.details->>'city' AS city, c.name AS category_name, l.status
-            FROM listings AS l
-            JOIN categories AS c ON l.category_id = c.id
-            WHERE l.user_id = $1
-            ORDER BY l.created_at DESC;
-        `;
+                const query = `SELECT l.id, l.title, l.address, l.details->>'city' AS city, c.name AS category_name, l.status
+                FROM listings AS l
+                JOIN categories AS c ON l.category_id = c.id
+                WHERE l.user_id = $1
+                ORDER BY l.created_at DESC;`;
                 const { rows } = await db.query(query, [userId]);
                 res.status(200).json(rows);
         } catch (error) {
@@ -123,7 +125,6 @@ export const getMyListings = async (req, res) => {
                 res.status(500).json({ error: 'Error interno del servidor.' });
         }
 };
-
 
 // OBTENER los datos de un listado específico para editarlo (PROTEGIDA - solo dueño)
 export const getListingForEdit = async (req, res) => {
@@ -134,16 +135,14 @@ export const getListingForEdit = async (req, res) => {
         // import path from 'path';
         try {
                 // 🚨 CAMBIO CRÍTICO: Unimos con categories para obtener el marker_icon_slug de la categoría.
-                const query = `
-            SELECT l.title, l.category_id, l.details, l.address, l.cover_image_path,
-                   ST_X(l.location::geometry) AS lng, ST_Y(l.location::geometry) AS lat,
-                   c.marker_icon_slug,
-                   c.icon_original_width,
-                   c.icon_original_height
-            FROM listings AS l
-            JOIN categories AS c ON l.category_id = c.id
-            WHERE l.id = $1 AND l.user_id = $2;
-        `;
+                const query = `SELECT l.title, l.category_id, l.details, l.address, l.cover_image_path,
+                        ST_X(l.location::geometry) AS lng, ST_Y(l.location::geometry) AS lat,
+                        c.marker_icon_slug,
+                        c.icon_original_width,
+                        c.icon_original_height
+                        FROM listings AS l
+                        JOIN categories AS c ON l.category_id = c.id
+                        WHERE l.id = $1 AND l.user_id = $2;`;
                 const { rows } = await db.query(query, [id, userId]);
 
                 if (rows.length === 0) return res.status(404).json({ error: 'Listado no encontrado o no autorizado.' });
@@ -163,8 +162,6 @@ export const getListingForEdit = async (req, res) => {
                 res.status(500).json({ error: 'Error interno del servidor.' });
         }
 };
-
-
 
 // =======================================================
 // --- LÓGICA DE CREACIÓN Y ACTUALIZACIÓN (MULTER + DB) ---
@@ -321,206 +318,206 @@ export const createListing = async (req, res) => {
 // CREAR UN NUEVO LISTADO (Con Multer y PostGIS)
 // =======================================================
 export const createListing = async (req, res) => {
-    const { id: userId } = req.user;
+        const { id: userId } = req.user;
 
-    // 📋 LOG PARA DEPURACIÓN
-    console.log('=================================================');
-    console.log('📥 RECIBIENDO DATOS EN createListing');
-    console.log('=================================================');
-    console.log('req.body:', req.body);
-    console.log('req.files:', req.files);
-    console.log('req.tempId:', req.tempId);
-    console.log('=================================================');
+        // 📋 LOG PARA DEPURACIÓN
+        console.log('=================================================');
+        console.log('📥 RECIBIENDO DATOS EN createListing');
+        console.log('=================================================');
+        console.log('req.body:', req.body);
+        console.log('req.files:', req.files);
+        console.log('req.tempId:', req.tempId);
+        console.log('=================================================');
 
-    // 🔑 EXTRAER CAMPOS DEL BODY
-    const {
-        title,
-        listing_type_id,
-        category_id,
-        lat,
-        lng,
-        address,
-        province_id,
-        city_id,
-        province,
-        city,
-        description,
-        opening_hours,
-        amenities
-    } = req.body;
+        // 🔑 EXTRAER CAMPOS DEL BODY
+        const {
+                title,
+                listing_type_id,
+                category_id,
+                lat,
+                lng,
+                address,
+                province_id,
+                city_id,
+                province,
+                city,
+                description,
+                opening_hours,
+                amenities
+        } = req.body;
 
-    const tempId = req.tempId;
+        const tempId = req.tempId;
 
-    // ✅ VALIDACIÓN: Campos obligatorios
-    if (!title || !category_id || !lat || !lng || !address || !province_id || !city_id || !province || !city) {
-        console.error('❌ VALIDACIÓN FALLIDA: Faltan campos obligatorios');
-        console.error('Campos recibidos:', {
-            title: !!title,
-            category_id: !!category_id,
-            lat: !!lat,
-            lng: !!lng,
-            address: !!address,
-            province_id: !!province_id,
-            city_id: !!city_id,
-            province: !!province,
-            city: !!city
-        });
+        // ✅ VALIDACIÓN: Campos obligatorios
+        if (!title || !category_id || !lat || !lng || !address || !province_id || !city_id || !province || !city) {
+                console.error('❌ VALIDACIÓN FALLIDA: Faltan campos obligatorios');
+                console.error('Campos recibidos:', {
+                        title: !!title,
+                        category_id: !!category_id,
+                        lat: !!lat,
+                        lng: !!lng,
+                        address: !!address,
+                        province_id: !!province_id,
+                        city_id: !!city_id,
+                        province: !!province,
+                        city: !!city
+                });
 
-        // Limpiar archivos temporales si existen
-        if (tempId) {
-            try {
-                await fs.remove(path.join('uploads', tempId));
-                console.log('🧹 Archivos temporales limpiados');
-            } catch (err) {
-                console.error('Error al limpiar temp:', err);
-            }
+                // Limpiar archivos temporales si existen
+                if (tempId) {
+                        try {
+                                await fs.remove(path.join('uploads', tempId));
+                                console.log('🧹 Archivos temporales limpiados');
+                        } catch (err) {
+                                console.error('Error al limpiar temp:', err);
+                        }
+                }
+
+                return res.status(400).json({
+                        error: 'Faltan campos obligatorios para el listado o la ubicación.',
+                        missing: {
+                                title: !title,
+                                category_id: !category_id,
+                                lat: !lat,
+                                lng: !lng,
+                                address: !address,
+                                province_id: !province_id,
+                                city_id: !city_id,
+                                province: !province,
+                                city: !city
+                        }
+                });
         }
 
-        return res.status(400).json({
-            error: 'Faltan campos obligatorios para el listado o la ubicación.',
-            missing: {
-                title: !title,
-                category_id: !category_id,
-                lat: !lat,
-                lng: !lng,
-                address: !address,
-                province_id: !province_id,
-                city_id: !city_id,
-                province: !province,
-                city: !city
-            }
-        });
-    }
-
-    try {
-        // 🖼️ MANEJO DE IMAGEN DE PORTADA
-        let coverImagePath;
-        if (req.files && req.files.coverImage && req.files.coverImage.length > 0) {
-            coverImagePath = req.files.coverImage[0].filename;
-            console.log('✅ Imagen de portada recibida:', coverImagePath);
-        } else {
-            coverImagePath = 'default-cover.jpg';
-            console.log('ℹ️  Usando imagen de portada por defecto');
-        }
-
-        // 🏗️ CONSTRUCCIÓN DEL OBJETO DETAILS (JSONB)
-        let parsedAmenities = [];
-        if (amenities) {
-            try {
-                parsedAmenities = typeof amenities === 'string' ? JSON.parse(amenities) : amenities;
-                console.log('✅ Amenities parseados:', parsedAmenities);
-            } catch (e) {
-                console.error('⚠️  Error al parsear amenities, usando array vacío:', e.message);
-            }
-        }
-
-        const finalDetails = {
-            provincia_id: province_id,
-            localidad_id: city_id,
-            province_name: province,
-            city_name: city,
-            description: description || '',
-            opening_hours: opening_hours || '',
-            amenities: parsedAmenities
-        };
-
-        console.log('🔍 Objeto finalDetails construido:', JSON.stringify(finalDetails, null, 2));
-
-        // 🧪 VALIDAR QUE EL JSON SEA VÁLIDO
         try {
-            JSON.parse(JSON.stringify(finalDetails));
-            console.log('✅ JSON de details es válido');
-        } catch (jsonError) {
-            console.error('❌ JSON de details INVÁLIDO:', jsonError);
-            throw new Error('El objeto details no puede convertirse a JSON válido');
-        }
+                // 🖼️ MANEJO DE IMAGEN DE PORTADA
+                let coverImagePath;
+                if (req.files && req.files.coverImage && req.files.coverImage.length > 0) {
+                        coverImagePath = req.files.coverImage[0].filename;
+                        console.log('✅ Imagen de portada recibida:', coverImagePath);
+                } else {
+                        coverImagePath = 'default-cover.jpg';
+                        console.log('ℹ️  Usando imagen de portada por defecto');
+                }
 
-        // 🗄️ PREPARAR QUERY SQL CON POSTGIS
-        const query = `
+                // 🏗️ CONSTRUCCIÓN DEL OBJETO DETAILS (JSONB)
+                let parsedAmenities = [];
+                if (amenities) {
+                        try {
+                                parsedAmenities = typeof amenities === 'string' ? JSON.parse(amenities) : amenities;
+                                console.log('✅ Amenities parseados:', parsedAmenities);
+                        } catch (e) {
+                                console.error('⚠️  Error al parsear amenities, usando array vacío:', e.message);
+                        }
+                }
+
+                const finalDetails = {
+                        provincia_id: province_id,
+                        localidad_id: city_id,
+                        province_name: province,
+                        city_name: city,
+                        description: description || '',
+                        opening_hours: opening_hours || '',
+                        amenities: parsedAmenities
+                };
+
+                console.log('🔍 Objeto finalDetails construido:', JSON.stringify(finalDetails, null, 2));
+
+                // 🧪 VALIDAR QUE EL JSON SEA VÁLIDO
+                try {
+                        JSON.parse(JSON.stringify(finalDetails));
+                        console.log('✅ JSON de details es válido');
+                } catch (jsonError) {
+                        console.error('❌ JSON de details INVÁLIDO:', jsonError);
+                        throw new Error('El objeto details no puede convertirse a JSON válido');
+                }
+
+                // 🗄️ PREPARAR QUERY SQL CON POSTGIS
+                const query = `
             INSERT INTO listings
-                (user_id, title, category_id, listing_type_id, location, address, details, cover_image_path, status, city, province)
+            (user_id, title, category_id, listing_type_id, location, address, details, cover_image_path, status, city, province)
             VALUES
                 ($1, $2, $3, $4, ST_SetSRID(ST_MakePoint($5, $6), 4326)::geography, $7, $8::jsonb, $9, 'pending', $10, $11)
             RETURNING id;
         `;
 
-        const values = [
-            userId,                           // $1 - ID del usuario
-            title,                            // $2 - Título del listado
-            parseInt(category_id),            // $3 - ID de categoría (asegurar INT)
-            parseInt(listing_type_id),        // $4 - ID de tipo de listado (asegurar INT)
-            parseFloat(lng),                  // $5 - Longitud (PUNTO va lng, lat)
-            parseFloat(lat),                  // $6 - Latitud
-            address,                          // $7 - Dirección
-            JSON.stringify(finalDetails),     // $8 - Details como STRING JSON
-            coverImagePath,                   // $9 - Path de imagen de portada
-            city,                             // $10 - Nombre de ciudad
-            province                          // $11 - Nombre de provincia
-        ];
+                const values = [
+                        userId,                           // $1 - ID del usuario
+                        title,                            // $2 - Título del listado
+                        parseInt(category_id),            // $3 - ID de categoría (asegurar INT)
+                        parseInt(listing_type_id),        // $4 - ID de tipo de listado (asegurar INT)
+                        parseFloat(lng),                  // $5 - Longitud (PUNTO va lng, lat)
+                        parseFloat(lat),                  // $6 - Latitud
+                        address,                          // $7 - Dirección
+                        JSON.stringify(finalDetails),     // $8 - Details como STRING JSON
+                        coverImagePath,                   // $9 - Path de imagen de portada
+                        city,                             // $10 - Nombre de ciudad
+                        province                          // $11 - Nombre de provincia
+                ];
 
-        console.log('📤 Ejecutando query SQL...');
-        console.log('Query:', query);
-        console.log('Valores:', values.map((v, i) => `${i+1}: ${typeof v} = ${v}`).join('\n'));
+                console.log('📤 Ejecutando query SQL...');
+                console.log('Query:', query);
+                console.log('Valores:', values.map((v, i) => `${i + 1}: ${typeof v} = ${v}`).join('\n'));
 
-        // 💾 EJECUTAR INSERCIÓN EN LA BASE DE DATOS
-        const result = await db.query(query, values);
-        const newListingId = result.rows[0].id;
+                // 💾 EJECUTAR INSERCIÓN EN LA BASE DE DATOS
+                const result = await db.query(query, values);
+                const newListingId = result.rows[0].id;
 
-        console.log('✅ ¡LISTADO CREADO EXITOSAMENTE!');
-        console.log('🆔 Nuevo ID:', newListingId);
+                console.log('✅ ¡LISTADO CREADO EXITOSAMENTE!');
+                console.log('🆔 Nuevo ID:', newListingId);
 
-        // 📁 MOVER ARCHIVOS DE CARPETA TEMPORAL A PERMANENTE
-        if (tempId) {
-            const tempPath = path.join('uploads', tempId);
-            const finalPath = path.join('uploads', newListingId.toString());
+                // 📁 MOVER ARCHIVOS DE CARPETA TEMPORAL A PERMANENTE
+                if (tempId) {
+                        const tempPath = path.join('uploads', tempId);
+                        const finalPath = path.join('uploads', newListingId.toString());
 
-            console.log('📁 Moviendo archivos...');
-            console.log('   De:', tempPath);
-            console.log('   A:', finalPath);
+                        console.log('📁 Moviendo archivos...');
+                        console.log('   De:', tempPath);
+                        console.log('   A:', finalPath);
 
-            if (await fs.pathExists(tempPath)) {
-                await fs.copy(tempPath, finalPath);
-                await fs.remove(tempPath);
-                console.log('✅ Archivos movidos correctamente');
-            } else {
-                console.log('ℹ️  No hay carpeta temporal para mover');
-            }
+                        if (await fs.pathExists(tempPath)) {
+                                await fs.copy(tempPath, finalPath);
+                                await fs.remove(tempPath);
+                                console.log('✅ Archivos movidos correctamente');
+                        } else {
+                                console.log('ℹ️  No hay carpeta temporal para mover');
+                        }
+                }
+
+                console.log('=================================================');
+                console.log('✅ PROCESO COMPLETADO CON ÉXITO');
+                console.log('=================================================');
+
+                res.status(201).json({
+                        message: 'Listado creado con éxito',
+                        id: newListingId
+                });
+
+        } catch (error) {
+                console.error('=================================================');
+                console.error('❌ ERROR AL CREAR EL LISTADO');
+                console.error('=================================================');
+                console.error('Error completo:', error);
+                console.error('Mensaje:', error.message);
+                console.error('Stack:', error.stack);
+                console.error('Código PG:', error.code);
+                console.error('Detalle PG:', error.detail);
+                console.error('=================================================');
+                // 🧹 LIMPIAR ARCHIVOS TEMPORALES EN CASO DE ERROR
+                if (tempId) {
+                        try {
+                                await fs.remove(path.join('uploads', tempId));
+                                console.log('🧹 Archivos temporales limpiados tras error');
+                        } catch (cleanupError) {
+                                console.error('⚠️  Error al limpiar archivos temporales:', cleanupError);
+                        }
+                }
+                res.status(500).json({
+                        error: 'Error interno del servidor al crear el listado.',
+                        details: process.env.NODE_ENV === 'development' ? error.message : undefined,
+                        pgCode: error.code || undefined
+                });
         }
-
-        console.log('=================================================');
-        console.log('✅ PROCESO COMPLETADO CON ÉXITO');
-        console.log('=================================================');
-
-        res.status(201).json({
-            message: 'Listado creado con éxito',
-            id: newListingId
-        });
-
-    } catch (error) {
-        console.error('=================================================');
-        console.error('❌ ERROR AL CREAR EL LISTADO');
-        console.error('=================================================');
-        console.error('Error completo:', error);
-        console.error('Mensaje:', error.message);
-        console.error('Stack:', error.stack);
-        console.error('Código PG:', error.code);
-        console.error('Detalle PG:', error.detail);
-        console.error('=================================================');
-        // 🧹 LIMPIAR ARCHIVOS TEMPORALES EN CASO DE ERROR
-        if (tempId) {
-            try {
-                await fs.remove(path.join('uploads', tempId));
-                console.log('🧹 Archivos temporales limpiados tras error');
-            } catch (cleanupError) {
-                console.error('⚠️  Error al limpiar archivos temporales:', cleanupError);
-            }
-        }
-        res.status(500).json({
-            error: 'Error interno del servidor al crear el listado.',
-            details: process.env.NODE_ENV === 'development' ? error.message : undefined,
-            pgCode: error.code || undefined
-        });
-    }
 };
 
 // ACTUALIZAR un listado existente (Con Multer y PostGIS)
@@ -592,14 +589,12 @@ export const updateListing = async (req, res) => {
                 };
 
                 // 4. Actualización con PostGIS y nuevos campos
-                await db.query(`
-            UPDATE listings SET
-                title = $1, category_id = $2, details = $3,
-                location = ST_SetSRID(ST_MakePoint($4, $5), 4326)::geography,
-                address = $6, cover_image_path = $7, updated_at = NOW(),
-                city = $8, province = $9 -- 🚨 Incluir city y province en las columnas dedicadas
-            WHERE id = $10 AND user_id = $11
-        `, [
+                await db.query(`UPDATE listings SET
+                        title = $1, category_id = $2, details = $3,
+                        location = ST_SetSRID(ST_MakePoint($4, $5), 4326)::geography,
+                        address = $6, cover_image_path = $7, updated_at = NOW(),
+                        city = $8, province = $9 -- 🚨 Incluir city y province en las columnas dedicadas
+                        WHERE id = $10 AND user_id = $11`,[
                         title,
                         categoryId,
                         finalDetails,
@@ -633,19 +628,15 @@ export const updateListingStatus = async (req, res) => {
         }
 
         try {
-                const query = `
-            UPDATE listings SET status = $1, updated_at = CURRENT_TIMESTAMP
-            WHERE id = $2
-            RETURNING id, status;
-        `;
+                const query = `UPDATE
+                listings SET status = $1, updated_at = CURRENT_TIMESTAMP
+                WHERE id = $2
+                RETURNING id, status;`;
                 const result = await db.query(query, [status, listingId]);
-
                 if (result.rowCount === 0) {
                         return res.status(404).json({ error: 'Listado no encontrado.' });
                 }
-
                 res.status(200).json({ message: `Estado del listado ${listingId} actualizado a ${status}` });
-
         } catch (error) {
                 console.error('Error al actualizar el estado:', error);
                 res.status(500).json({ error: 'Error interno del servidor.' });
@@ -667,28 +658,22 @@ export const deleteListing = async (req, res) => {
                 );
 
                 if (checkQuery.rowCount === 0) {
-                        return res.status(403).json({ error: 'Acceso prohibido. No eres el dueño de este listado.' });
+                        return res.status(403).json({error: 'Acceso prohibido. No eres el dueño de este listado.'});
                 }
-
                 // 2. Eliminar de la Base de Datos
                 const deleteQuery = await db.query('DELETE FROM listings WHERE id = $1', [listingId]);
 
                 if (deleteQuery.rowCount === 0) {
                         return res.status(404).json({ error: 'Listado no encontrado para eliminar.' });
                 }
-
                 // 3. Eliminar archivos del disco (fs-extra)
                 const folderPath = path.join('uploads', listingId.toString());
                 if (await fs.pathExists(folderPath)) {
                         await fs.remove(folderPath);
                 }
-
                 res.status(200).json({ message: 'Listado y archivos asociados eliminados con éxito.' });
-
         } catch (error) {
                 console.error(`Error al eliminar el listado ${listingId}:`, error);
                 res.status(500).json({ error: 'Error interno del servidor al eliminar el listado.' });
         }
 };
-
-// ... Puedes añadir otras funciones como getListingDetailsPublic, etc.

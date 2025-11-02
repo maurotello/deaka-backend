@@ -1,31 +1,19 @@
 // server/middleware/upload.js
 import multer from 'multer';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import { v4 as uuidv4 } from 'uuid';
 
-// 🚨 Define __dirname para módulos ES6
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// =======================================================
+// 🔥 CONFIGURACIÓN PARA CLOUDINARY
+// =======================================================
+// Ya NO usamos diskStorage, ahora usamos memoryStorage
+// porque vamos a subir directamente a Cloudinary desde el buffer
 
-// Configuración de almacenamiento: guardamos en public/icons
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        // Asume que la carpeta 'public/icons' existe en la raíz del proyecto Next.js
-        // Ajusta la ruta si es necesario (ej: path.join(__dirname, '..', '..', 'public', 'icons'))
-        cb(null, path.join(process.cwd(), 'public', 'icons')); 
-    },
-    filename: (req, file, cb) => {
-        // Usamos el slug de la categoría como nombre de archivo para evitar colisiones
-        // y para que el nombre coincida con el marker_icon_slug
-        //const slug = req.body.slug || 'temp'; 
-        const tempFilename = `${uuidv4()}`;
-        const extension = path.extname(file.originalname).toLowerCase();
-        cb(null, tempFilename + extension);
-    }
-});
+// =======================================================
+// 1. MULTER PARA ICONOS DE CATEGORÍAS (si es que los usas)
+// =======================================================
+const iconStorage = multer.memoryStorage(); // 🔥 CAMBIO: memoria en lugar de disco
 
-// Filtro para aceptar solo imágenes
-const fileFilter = (req, file, cb) => {
+const iconFileFilter = (req, file, cb) => {
     if (file.mimetype.startsWith('image/')) {
         cb(null, true);
     } else {
@@ -33,11 +21,47 @@ const fileFilter = (req, file, cb) => {
     }
 };
 
-// Middleware de Multer
-const uploadIcon = multer({ 
-    storage: storage,
-    fileFilter: fileFilter,
+export const uploadIcon = multer({
+    storage: iconStorage,
+    fileFilter: iconFileFilter,
     limits: { fileSize: 1024 * 1024 * 5 } // 5MB límite
-}).single('iconFile'); // 'iconFile' debe coincidir con el nombre de campo en el Frontend
+}).single('iconFile');
 
+// =======================================================
+// 2. 🔥 MULTER PARA LISTINGS (coverImage + galleryImages)
+// =======================================================
+const listingStorage = multer.memoryStorage(); // 🔥 Guardamos en memoria (buffer)
+
+const listingFileFilter = (req, file, cb) => {
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    if (allowedTypes.includes(file.mimetype)) {
+        cb(null, true);
+    } else {
+        cb(new Error('Tipo de archivo no permitido. Solo JPG, PNG y WEBP.'), false);
+    }
+};
+
+// 🔥 Middleware para generar tempId ANTES de subir archivos
+export const generateTempId = (req, res, next) => {
+    req.tempId = uuidv4();
+    console.log('📝 TempId generado:', req.tempId);
+    next();
+};
+
+// 🔥 Middleware principal para listings
+export const uploadListingImages = multer({
+    storage: listingStorage,
+    fileFilter: listingFileFilter,
+    limits: {
+        fileSize: 5 * 1024 * 1024, // 5MB por archivo
+        files: 11 // Máximo 1 cover + 10 galería
+    }
+}).fields([
+    { name: 'coverImage', maxCount: 1 },
+    { name: 'galleryImages', maxCount: 10 }
+]);
+
+// =======================================================
+// 3. EXPORTAR POR DEFECTO (para mantener compatibilidad)
+// =======================================================
 export default uploadIcon;

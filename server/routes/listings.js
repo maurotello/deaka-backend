@@ -1,10 +1,11 @@
 import express from 'express';
 import verifyToken from '../middleware/auth.js';
 import { requireRole } from '../middleware/requireRole.js';
-import fs from 'fs-extra';
-import path from 'path';
 import multer from 'multer';
 import { v4 as uuidv4 } from 'uuid';
+import path from 'path';
+import fs from 'fs-extra';
+
 import {
     getMainCategories,
     getAllCategories,
@@ -33,7 +34,7 @@ import {
 } from '../controllers/listingTypeController.js';
 
 // =======================================================
-// --- CONFIGURACIÓN UNIFICADA DE MULTER ---
+// 🔥 CONFIGURACIÓN DE MULTER PARA CLOUDINARY
 // =======================================================
 
 const fileFilter = (req, file, cb) => {
@@ -46,47 +47,40 @@ const fileFilter = (req, file, cb) => {
     cb(new Error('Error: Solo se permiten archivos de imagen (jpeg, jpg, png, webp).'));
 };
 
-const createStorage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        if (!req.tempId) req.tempId = uuidv4();
-        const dest = path.join('uploads', req.tempId, file.fieldname);
-        fs.mkdirsSync(dest);
-        cb(null, dest);
-    },
-    filename: (req, file, cb) => {
-        cb(null, `${Date.now()}-${file.originalname}`);
-    }
-});
+// 🔥 MIDDLEWARE: Generar tempId antes de subir
+const generateTempId = (req, res, next) => {
+    req.tempId = uuidv4();
+    console.log('📝 TempId generado:', req.tempId);
+    next();
+};
 
-const uploadMiddleware = multer({
-    storage: createStorage,
+// 🔥 MULTER PARA LISTINGS - AHORA USA MEMORIA (no disco)
+const listingStorage = multer.memoryStorage(); // 🔥 CAMBIO CRÍTICO
+
+const uploadListingMiddleware = multer({
+    storage: listingStorage, // 🔥 Ahora guardamos en memoria (buffer)
     fileFilter: fileFilter,
-    limits: { fileSize: 2 * 1024 * 1024 }
+    limits: { fileSize: 5 * 1024 * 1024 } // 5MB por archivo
 }).fields([
     { name: 'coverImage', maxCount: 1 },
-    { name: 'galleryImages', maxCount: 6 }
+    { name: 'galleryImages', maxCount: 10 }
 ]);
 
-const editStorage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        const listingId = req.params.id;
-        const dest = path.join('uploads', listingId, file.fieldname);
-        fs.mkdirsSync(dest);
-        cb(null, dest);
-    },
-    filename: (req, file, cb) => {
-        cb(null, `${Date.now()}-${file.originalname}`);
-    }
-});
-
-const multerEditUploader = multer({
-    storage: editStorage,
+// 🔥 MULTER PARA EDICIÓN - TAMBIÉN USA MEMORIA
+const uploadEditMiddleware = multer({
+    storage: listingStorage,
     fileFilter: fileFilter,
-    limits: { fileSize: 2 * 1024 * 1024 }
+    limits: { fileSize: 5 * 1024 * 1024 }
 }).fields([
     { name: 'coverImage', maxCount: 1 },
-    { name: 'galleryImages', maxCount: 6 }
+    { name: 'galleryImages', maxCount: 10 }
 ]);
+
+// =======================================================
+// 🔥 MULTER PARA ICONOS DE CATEGORÍAS
+// =======================================================
+// ESTOS TODAVÍA USAN DISCO LOCAL (public/icons)
+// Si quieres, después los puedes migrar a Cloudinary también
 
 const iconStorage = multer.diskStorage({
     destination: (req, file, cb) => {
@@ -121,13 +115,25 @@ const router = express.Router();
 router.get('/listings', getMapListings);
 
 // PROTEGIDAS (USUARIO/DUEÑO)
-router.get('/my-listings', verifyToken, getMyListings); // 🔥 DESCOMENTADA
+router.get('/my-listings', verifyToken, getMyListings);
 router.get('/listings/:id', verifyToken, getListingForEdit);
 router.delete('/listings/:id', verifyToken, deleteListing);
 
-// PROTEGIDAS (CON MULTER)
-router.post('/listings', verifyToken, uploadMiddleware, createListing);
-router.post('/listings/:id', verifyToken, multerEditUploader, updateListing);
+// 🔥 PROTEGIDAS (CON MULTER CLOUDINARY)
+router.post(
+    '/listings',
+    verifyToken,
+    generateTempId,              // 🔥 NUEVO: Genera ID temporal
+    uploadListingMiddleware,     // 🔥 ACTUALIZADO: Usa memoryStorage
+    createListing
+);
+
+router.post(
+    '/listings/:id',
+    verifyToken,
+    uploadEditMiddleware,        // 🔥 ACTUALIZADO: Usa memoryStorage
+    updateListing
+);
 
 // PROTEGIDAS (ADMIN)
 router.patch('/listings/:id/status', verifyToken, requireRole(['admin']), updateListingStatus);
@@ -137,9 +143,9 @@ router.patch('/listings/:id/status', verifyToken, requireRole(['admin']), update
 // =======================================================
 
 // PÚBLICAS (Para el formulario de submit)
-router.get('/categories', getCategories); // 🔥 Devuelve solo padres
-router.get('/categories/all', getAllCategories); // 🔥 DESCOMENTADA - Devuelve todas
-router.get('/categories/:parentId/subcategories', getSubcategories); // 🔥 DESCOMENTADA
+router.get('/categories', getCategories);
+router.get('/categories/all', getAllCategories);
+router.get('/categories/:parentId/subcategories', getSubcategories);
 
 // PROTEGIDAS (ADMIN)
 router.post(
@@ -165,7 +171,7 @@ router.delete('/categories/:id', verifyToken, requireRole(['admin']), deleteCate
 // =======================================================
 
 // PÚBLICAS (Para el selector en /submit)
-router.get('/listing-types', getAllListingTypes); // 🔥 DESCOMENTADA
+router.get('/listing-types', getAllListingTypes);
 
 // PROTEGIDAS (ADMIN)
 router.post('/listing-types', verifyToken, requireRole(['admin']), createListingType);

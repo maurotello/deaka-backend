@@ -38,6 +38,8 @@ const corsOptions = {
     },
     credentials: true, // CRÍTICO para cookies/refresh token
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'], // 🔥 AGREGAR ESTA LÍNEA
+    exposedHeaders: ['Set-Cookie'], // 🔥 AGREGAR ESTA LÍNEA
 };
 
 import authRoutes from './routes/auth.js';

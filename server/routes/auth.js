@@ -64,13 +64,16 @@ router.post('/login', async (req, res) => {
         // Guardar Refresh Token en DB
         await db.query('UPDATE users SET refresh_token = $1 WHERE id = $2', [refreshToken, user.id]);
 
-        res.cookie('refreshToken', refreshToken, {
+        // 🔥 CONFIGURACIÓN CRÍTICA PARA CROSS-ORIGIN
+        const cookieOptions = {
             httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'lax',
+            secure: true, // SIEMPRE true en producción (Render usa HTTPS)
+            sameSite: 'none', // 🔥 CRÍTICO: permite cookies cross-origin
             path: '/',
             maxAge: 7 * 24 * 60 * 60 * 1000,
-        });
+        };
+
+        res.cookie('refreshToken', refreshToken, cookieOptions);
 
         console.log('✅ LOGIN EXITOSO - Cookie refreshToken configurada');
 
@@ -88,42 +91,38 @@ router.post('/login', async (req, res) => {
 // REFRESH TOKEN
 router.get('/refresh', async (req, res) => {
     const refreshToken = req.cookies.refreshToken;
-
-    console.log('REQ COOKIES:', req.cookies);
-    console.log('REQ HEADERS cookie:', req.headers.cookie);
+    console.log('🔍 REQ COOKIES:', req.cookies);
+    console.log('🔍 REQ HEADERS cookie:', req.headers.cookie);
 
     if (!refreshToken) {
+        console.log('❌ No se recibió refreshToken en cookies');
         return res.status(401).json({ error: 'No autorizado, no se proporcionó token' });
     }
-
     try {
         const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
-
         const userResult = await db.query('SELECT id, email, refresh_token, role FROM users WHERE id = $1', [decoded.id]);
 
         if (userResult.rows.length === 0 || userResult.rows[0].refresh_token !== refreshToken) {
             return res.status(403).json({ error: 'Acceso prohibido' });
         }
-
         const user = userResult.rows[0];
-
         const accessToken = jwt.sign(
             { id: user.id, email: user.email, role: user.role },
             process.env.JWT_SECRET,
             { expiresIn: '15m' }
         );
-
+        console.log('✅ Refresh token validado correctamente');
         res.json({
             accessToken,
             user: { id: user.id, email: user.email, role: user.role }
         });
 
     } catch (err) {
-        console.error("Error en /refresh:", err.message);
+        console.error("❌ Error en /refresh:", err.message);
         res.clearCookie('refreshToken', {
             httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'lax'
+            secure: true,
+            sameSite: 'none'
         });
         return res.status(403).json({ message: 'Token inválido o expirado' });
     }
@@ -132,19 +131,15 @@ router.get('/refresh', async (req, res) => {
 // LOGOUT
 router.post('/logout', async (req, res) => {
     const refreshToken = req.cookies.refreshToken;
-
     if (!refreshToken) {
         return res.sendStatus(204);
     }
-
     await db.query('UPDATE users SET refresh_token = NULL WHERE refresh_token = $1', [refreshToken]);
-
     res.clearCookie('refreshToken', {
         httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax'
+        secure: true,
+        sameSite: 'none'
     });
-
     res.status(200).json({ message: 'Sesión cerrada exitosamente.' });
 });
 
@@ -154,16 +149,9 @@ router.post('/logout', async (req, res) => {
 
 const adminMiddlewares = [verifyToken, verifyAdminRole];
 
-// ALTA (Creación de nuevos usuarios/admins)
 router.post('/admin/register', adminMiddlewares, adminRegisterUser);
-
-// LECTURA (Listar todos los usuarios)
-router.get('/admin/users', adminMiddlewares, getAllUsers); // 🔥 RUTA CORREGIDA
-
-// MODIFICACIÓN (Actualizar rol o nombre)
+router.get('/admin/users', adminMiddlewares, getAllUsers);
 router.patch('/admin/users/:id', adminMiddlewares, updateUserRole);
-
-// BAJA (Eliminar usuario)
 router.delete('/admin/users/:id', adminMiddlewares, deleteUser);
 
 export default router;

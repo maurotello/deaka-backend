@@ -5,7 +5,7 @@ import multer from 'multer';
 import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
 import fs from 'fs-extra';
-
+import * as listingController from '../controllers/listingController.js';
 import {
     getMainCategories,
     getAllCategories,
@@ -15,6 +15,7 @@ import {
     deleteCategory
 } from '../controllers/categoryController.js';
 
+/*
 import {
     getCategories,
     getMapListings,
@@ -25,7 +26,7 @@ import {
     createListing,
     updateListing
 } from '../controllers/listingController.js';
-
+*/
 import {
     getAllListingTypes,
     createListingType,
@@ -177,6 +178,11 @@ router.get('/listing-types', getAllListingTypes);
 router.post('/listing-types', verifyToken, requireRole(['admin']), createListingType);
 router.patch('/listing-types/:id', verifyToken, requireRole(['admin']), updateListingType);
 router.delete('/listing-types/:id', verifyToken, requireRole(['admin']), deleteListingType);
+
+
+// 🔥 NUEVA RUTA: Obtener el esquema de campos dinámicos
+// No requiere autenticación si solo devuelve datos de configuración, pero la añadimos por consistencia.
+router.get('/listing-types/:id/schema', listingController.getListingSchema);
 
 // =======================================================
 // --- RUTA DE PRUEBA ---

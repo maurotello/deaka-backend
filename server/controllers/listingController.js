@@ -25,6 +25,12 @@ const uploadToCloudinary = (buffer, folder) => {
         });
 };
 
+const isValidEmail = (email) => {
+        // Regex estricta pero simple para el MVP
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        return emailRegex.test(String(email).toLowerCase());
+};
+
 // =======================================================
 // --- LÓGICA DE DATOS Y GEOESPACIAL (SIN CAMBIOS) ---
 // =======================================================
@@ -189,6 +195,7 @@ export const createListing = async (req, res) => {
                 city_id,
                 province,
                 city,
+                email,
                 description,
                 opening_hours,
                 amenities
@@ -197,7 +204,7 @@ export const createListing = async (req, res) => {
         const tempId = req.tempId;
 
         // ✅ VALIDACIÓN
-        if (!title || !category_id || !lat || !lng || !address || !province_id || !city_id || !province || !city) {
+        if (!title || !category_id || !lat || !lng || !address || !province_id || !city_id || !province || !city || !email) {
                 console.error('❌ VALIDACIÓN FALLIDA: Faltan campos obligatorios');
                 return res.status(400).json({
                         error: 'Faltan campos obligatorios para el listado o la ubicación.',
@@ -210,8 +217,16 @@ export const createListing = async (req, res) => {
                                 province_id: !province_id,
                                 city_id: !city_id,
                                 province: !province,
-                                city: !city
+                                city: !city,
+                                email: !email
                         }
+                });
+        }
+
+        if (!isValidEmail(email)) { // Usar la función auxiliar
+                console.error('❌ VALIDACIÓN FALLIDA: Formato de email inválido');
+                return res.status(400).json({
+                        error: 'El formato del email proporcionado no es válido.',
                 });
         }
 
@@ -285,13 +300,12 @@ export const createListing = async (req, res) => {
 
                 // 🗄️ INSERTAR EN BASE DE DATOS
                 const query = `
-            INSERT INTO listings
-            (user_id, title, category_id, listing_type_id, location, address, details, cover_image_path, status, city, province)
-            VALUES
-            ($1, $2, $3, $4, ST_SetSRID(ST_MakePoint($5, $6), 4326)::geography, $7, $8::jsonb, $9, 'pending', $10, $11)
-            RETURNING id;
-        `;
-
+                        INSERT INTO listings
+                        (user_id, title, category_id, listing_type_id, location, address, details, cover_image_path, status, city, province, email)
+                        VALUES
+                        ($1, $2, $3, $4, ST_SetSRID(ST_MakePoint($5, $6), 4326)::geography, $7, $8::jsonb, $9, 'pending', $10, $11, $12)
+                        RETURNING id;
+                `;
                 const values = [
                         userId,
                         title,
@@ -303,7 +317,8 @@ export const createListing = async (req, res) => {
                         JSON.stringify(finalDetails),
                         coverImageUrl,  // 🔥 AHORA ES LA URL DE CLOUDINARY
                         city,
-                        province
+                        province,
+                        email
                 ];
 
                 console.log('📤 Ejecutando query SQL...');
@@ -388,11 +403,17 @@ export const updateListing = async (req, res) => {
                 // 2. Extraer datos del cuerpo (incluyendo la instrucción de borrado del frontend)
                 const {
                         title, categoryId, lat, lng, address, city, province,
-                        provinciaId, localidadId, details: updatedDetails,
+                        provinciaId, localidadId, details: updatedDetails, email,
                         // Datos específicos para Cloudinary/Imágenes
                         galleryImagesToDelete, // Array de URLs (Frontend)
                         deleteCoverImagePublicId // ID Público de la portada borrada (Frontend)
                 } = req.body;
+
+                if (email && !isValidEmail(email)) {
+                        return res.status(400).json({
+                                error: 'El formato del email proporcionado no es válido para la actualización.',
+                        });
+                }
 
 
                 // 3. Lógica de BORRADO de Portada (Si el usuario presionó el botón rojo)
@@ -497,8 +518,8 @@ export const updateListing = async (req, res) => {
                 title = $1, category_id = $2, details = $3::jsonb,
                 location = ST_SetSRID(ST_MakePoint($4, $5), 4326)::geography,
                 address = $6, cover_image_path = $7, updated_at = NOW(),
-                city = $8, province = $9
-            WHERE id = $10 AND user_id = $11
+                city = $8, province = $9, email = $10
+                WHERE id = $11 AND user_id = $12
         `, [
                         title,
                         categoryId,
@@ -509,6 +530,7 @@ export const updateListing = async (req, res) => {
                         finalCoverUrl,
                         city,
                         province,
+                        email,
                         listingId,
                         userId
                 ]);

@@ -2,15 +2,18 @@ import pg from 'pg';
 const { Pool } = pg;
 
 const pool = new Pool({
-    user: 'postgres',
-    host: 'db.olqrqsshjllxawphctmi.supabase.co',
+    user: 'postgres.fzcgajwhpoqqdcqxcjfm',
+    host: 'aws-1-us-east-1.pooler.supabase.com',
     database: 'postgres',
-    password: 'qo2nS3jmgVcgkuSr',
-    port: 5432,
+    password: 'desaTELLO123$%&',
+    // ⚠️ Puerto del Transaction Pooler
+    port: 6543,
     ssl: {
         rejectUnauthorized: false
-    }
+    },
+    connectionTimeoutMillis: 10000,
 });
+
 
 async function test() {
     try {

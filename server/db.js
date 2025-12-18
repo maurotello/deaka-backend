@@ -1,5 +1,5 @@
 // server/db.js
-import 'dotenv/config'; 
+import 'dotenv/config';
 import pg from 'pg';
 const { Pool } = pg;
 
@@ -18,18 +18,20 @@ const { Pool } = pg;
 
 const pool = new Pool({
     // Utilizamos las variables que configuraremos en Render
-    user: process.env.DB_USER, 
+    user: process.env.DB_USER,
     host: process.env.DB_HOST,
     database: process.env.DB_NAME,
     password: process.env.DB_PASSWORD,
     // Convertimos el puerto a número, usando 5432 como fallback si no se define.
     port: process.env.DB_PORT ? parseInt(process.env.DB_PORT, 10) : 5432,
-    
+
     // 🔥 CONFIGURACIÓN SSL CRÍTICA PARA SUPABASE 🔥
     // Asumimos que si hay un host definido, NO estamos en localhost y necesitamos SSL.
-    ssl: process.env.DB_HOST && !process.env.DB_HOST.includes('localhost') ? {
-        rejectUnauthorized: false, // Necesario para entornos cloud como Render
-    } : false, // Desactivar SSL para pruebas locales (ej: Docker)
+    ssl: (process.env.DB_HOST &&
+        !process.env.DB_HOST.includes('localhost') &&
+        process.env.DB_HOST !== 'db') ? {
+        rejectUnauthorized: false,
+    } : false,
 
     connectionTimeoutMillis: 10000,
 });
@@ -47,7 +49,7 @@ async function testConnection() {
         console.error('Verifica que las variables de entorno de Render sean las correctas del Pooler.');
         // Terminamos el proceso en producción si la conexión a la DB falla
         if (process.env.NODE_ENV === 'production') {
-            process.exit(1); 
+            process.exit(1);
         }
     }
 }

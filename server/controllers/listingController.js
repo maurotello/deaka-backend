@@ -138,7 +138,7 @@ export const getMapListings = async (req, res) => {
                 queryParams.push(minLng, minLat, maxLng, maxLat);
                 whereClauses.push(`l.location && ST_MakeEnvelope($${bbox_start_index}, $${bbox_start_index + 1}, $${bbox_start_index + 2}, $${bbox_start_index + 3}, 4326)`);
             } else {
-                 console.warn('⚠️ Bbox proporcionado en formato incorrecto:', bbox);
+                console.warn('⚠️ Bbox proporcionado en formato incorrecto:', bbox);
             }
         }
 
@@ -146,19 +146,91 @@ export const getMapListings = async (req, res) => {
             SELECT
                 l.id,
                 l.title,
+                l.slug,
                 ST_Y(l.location::geometry) AS latitude,
                 ST_X(l.location::geometry) AS longitude,
                 COALESCE(c.marker_icon_slug, 'default-pin') AS marker_icon_slug,
                 ROUND((COALESCE(c.icon_original_width, 38)::numeric / COALESCE(c.icon_original_height, 38)::numeric) * $1) AS icon_calculated_width,
-                $1 AS icon_calculated_height
+                $1 AS icon_calculated_height,
+                l.cover_image_path,
+                lt.name AS listing_type_name,
+                CASE 
+                    WHEN c.parent_id IS NOT NULL THEN parent_cat.name
+                    ELSE c.name
+                END AS category_name,
+                CASE 
+                    WHEN c.parent_id IS NOT NULL THEN c.name
+                    ELSE NULL
+                END AS subcategory_name,
+                l.address,
+                l.phone,
+                l.email,
+                l.whatsapp,
+                l.website
             FROM listings AS l
             LEFT JOIN categories AS c ON l.category_id = c.id
+            LEFT JOIN categories AS parent_cat ON c.parent_id = parent_cat.id
+            LEFT JOIN listing_types AS lt ON l.listing_type_id = lt.id
             WHERE ${whereClauses.join(' AND ')};`;
 
         const { rows } = await db.query(query, queryParams);
         res.status(200).json(rows);
     } catch (error) {
         console.error('Error al obtener los listings:', error);
+        res.status(500).json({ error: 'Error interno del servidor' });
+    }
+};
+
+// ========================================
+// OBTENER LISTING PÚBLICO POR ID
+// ========================================
+export const getPublicListing = async (req, res) => {
+    try {
+        const { slug } = req.params;
+
+        const query = `
+            SELECT
+                l.id,
+                l.title,
+                l.slug,
+                l.description,
+                ST_Y(l.location::geometry) AS latitude,
+                ST_X(l.location::geometry) AS longitude,
+                COALESCE(c.marker_icon_slug, 'default-pin') AS marker_icon_slug,
+                COALESCE(c.icon_original_width, 38) AS icon_calculated_width,
+                COALESCE(c.icon_original_height, 38) AS icon_calculated_height,
+                l.cover_image_path,
+                l.details,
+                lt.name AS listing_type_name,
+                CASE 
+                    WHEN c.parent_id IS NOT NULL THEN parent_cat.name
+                    ELSE c.name
+                END AS category_name,
+                CASE 
+                    WHEN c.parent_id IS NOT NULL THEN c.name
+                    ELSE NULL
+                END AS subcategory_name,
+                l.address,
+                l.phone,
+                l.email,
+                l.whatsapp,
+                l.website
+            FROM listings AS l
+            LEFT JOIN categories AS c ON l.category_id = c.id
+            LEFT JOIN categories AS parent_cat ON c.parent_id = parent_cat.id
+            LEFT JOIN listing_types AS lt ON l.listing_type_id = lt.id
+            WHERE l.slug = $1;
+        `;
+
+        const { rows } = await db.query(query, [slug]);
+
+        if (rows.length === 0) {
+            return res.status(404).json({ error: 'Listing no encontrado' });
+        }
+
+        res.status(200).json(rows[0]);
+    } catch (error) {
+        console.error('Error al obtener el listing público:', error);
         res.status(500).json({ error: 'Error interno del servidor' });
     }
 };
@@ -238,6 +310,7 @@ export const getListingForEdit = async (req, res) => {
                 l.city,
                 l.province,
                 l.email,
+                l.whatsapp,
                 l.phone,
                 l.website,
                 l.cover_image_path,
@@ -319,6 +392,7 @@ export const createListing = async (req, res) => {
         amenities,
         dynamic_details, // 🔥 JSON string de campos variables
         phone,
+        whatsapp,
         website
     } = req.body;
 
@@ -419,9 +493,9 @@ export const createListing = async (req, res) => {
         // 3. 🗄️ INSERTAR EN BASE DE DATOS
         const query = `
             INSERT INTO listings
-            (user_id, title, category_id, listing_type_id, location, address, details, cover_image_path, status, city, province, email, description, phone, website)
+            (user_id, title, category_id, listing_type_id, location, address, details, cover_image_path, status, city, province, email, description, phone, whatsapp, website)
             VALUES
-            ($1, $2, $3, $4, ST_SetSRID(ST_MakePoint($5, $6), 4326)::geography, $7, $8::jsonb, $9, 'pending', $10, $11, $12, $13, $14, $15)
+            ($1, $2, $3, $4, ST_SetSRID(ST_MakePoint($5, $6), 4326)::geography, $7, $8::jsonb, $9, 'pending', $10, $11, $12, $13, $14, $15, $16)
             RETURNING id;
         `;
 
@@ -440,7 +514,8 @@ export const createListing = async (req, res) => {
             email,                      // $12
             description || null,        // $13
             phone || null,              // $14
-            website || null             // $15
+            whatsapp || null,           // $15
+            website || null             // $16
         ];
 
         console.log('📤 Ejecutando query SQL...');
@@ -527,13 +602,26 @@ export const updateListing = async (req, res) => {
         // 2. Extraer datos del cuerpo (incluyendo la instrucción de borrado del frontend)
         const {
             title, category_id, lat, lng, address, city, province, description, // Columna fija
-            phone, website, // Columna fija
+            phone, whatsapp, website, // Columna fija
             provincia_id, localidad_id, opening_hours, amenities, // Metadata
             dynamic_details, // 🔥 JSON String con los campos dinámicos
-            galleryImagesToDelete, deleteCoverImagePublicId // Cloudinary
+            galleryImagesToDelete, deleteCoverImagePublicId, // Cloudinary
+            listingTypeId // 👈 NUEVO: ID del tipo de listado nuevo (opcional)
         } = req.body;
 
-        const current_listing_type_id = old_listing_type_id;
+        // Determinar el listing_type_id con el que vamos a trabajar (nuevo o viejo)
+        let current_listing_type_id = old_listing_type_id;
+        if (listingTypeId && listingTypeId !== 'undefined' && listingTypeId !== '') {
+            const parsedId = parseInt(listingTypeId);
+            if (!isNaN(parsedId)) {
+                current_listing_type_id = parsedId;
+            }
+        }
+
+        console.log(`🔍 [UPDATE] Listing ID: ${listingId}`);
+        console.log(`🔍 [UPDATE] Old Type ID: ${old_listing_type_id}`);
+        console.log(`🔍 [UPDATE] Requested Type ID: ${listingTypeId}`);
+        console.log(`🔍 [UPDATE] Final Type ID to use: ${current_listing_type_id}`);
 
         // 🛑 VALIDACIÓN DE dynamic_details
         let parsedDynamicDetails = {};
@@ -541,7 +629,8 @@ export const updateListing = async (req, res) => {
             try {
                 parsedDynamicDetails = JSON.parse(dynamic_details);
             } catch (e) {
-                return res.status(400).json({ error: 'Formato de detalles dinámicos inválido.' });
+                console.error('❌ Error al parsear dynamic_details JSON en updateListing:', e.message);
+                return res.status(400).json({ error: 'Formato de detalles dinámicos inválido.', details: e.message });
             }
         }
 
@@ -667,32 +756,36 @@ export const updateListing = async (req, res) => {
                 category_id = $2,
                 description = $3,
                 phone = $4,
-                website = $5,
-                details = $6::jsonb,
-                location = ST_SetSRID(ST_MakePoint($7, $8), 4326)::geography,
-                address = $9,
-                cover_image_path = $10,
-                city = $11,
-                province = $12,
-                email = $13,
+                whatsapp = $5,
+                website = $6,
+                details = $7::jsonb,
+                location = ST_SetSRID(ST_MakePoint($8, $9), 4326)::geography,
+                address = $10,
+                cover_image_path = $11,
+                city = $12,
+                province = $13,
+                email = $14,
+                listing_type_id = $17,
                 updated_at = NOW()
-            WHERE id = $14 AND user_id = $15
+            WHERE id = $15 AND user_id = $16
         `, [
             title,                          // $1
-            category_id,                    // $2
+            parseInt(category_id) || null,  // $2 (Robust Parse)
             description || null,            // $3 (Columna Fija)
             phone || null,                  // $4 (Columna Fija)
-            website || null,                // $5 (Columna Fija)
-            detailsToStore,                 // $6 (JSONB)
-            parseFloat(lng),                // $7 (para ST_MakePoint)
-            parseFloat(lat),                // $8 (para ST_MakePoint)
-            address,                        // $9
-            finalCoverUrl,                  // $10
-            city,                           // $11
-            province,                       // $12
-            email,                          // $13
-            listingId,                      // $14
-            userId                          // $15
+            whatsapp || null,               // $5 (Columna Fija)
+            website || null,                // $6 (Columna Fija)
+            detailsToStore,                 // $7 (JSONB)
+            parseFloat(lng),                // $8 (para ST_MakePoint)
+            parseFloat(lat),                // $9 (para ST_MakePoint)
+            address,                        // $10
+            finalCoverUrl,                  // $11
+            city,                           // $12
+            province,                       // $13
+            email,                          // $14
+            listingId,                      // $15
+            userId,                         // $16
+            current_listing_type_id         // $17 (Nuevo Tipo de Listado)
         ]);
 
         console.log(`✅ Listado ${listingId} actualizado con éxito.`);
@@ -700,7 +793,7 @@ export const updateListing = async (req, res) => {
 
     } catch (error) {
         console.error(`❌ Error al actualizar el listado ${listingId}:`, error);
-        res.status(500).json({ error: 'Error interno del servidor.' });
+        res.status(500).json({ error: 'Error interno del servidor.', details: error.message });
     }
 };
 

@@ -15,7 +15,7 @@ import {
     deleteCategory
 } from '../controllers/categoryController.js';
 
-/*
+
 import {
     getCategories,
     getMapListings,
@@ -26,7 +26,7 @@ import {
     createListing,
     updateListing
 } from '../controllers/listingController.js';
-*/
+
 import {
     getAllListingTypes,
     createListingType,
@@ -114,6 +114,7 @@ const router = express.Router();
 
 // PÚBLICAS
 router.get('/listings', getMapListings);
+router.get('/listings/:slug/public', listingController.getPublicListing);
 
 // PROTEGIDAS (USUARIO/DUEÑO)
 router.get('/my-listings', verifyToken, getMyListings);

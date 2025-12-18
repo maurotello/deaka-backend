@@ -59,7 +59,7 @@ const PORT = process.env.PORT || 3001;
 app.use(cors(corsOptions));
 
 // 2. Habilitar las peticiones pre-flight (OPTIONS) para todas las rutas
-app.options('*', cors(corsOptions));
+app.options(/.*/, cors(corsOptions));
 
 // 3. Body Parser para JSON
 app.use(express.json());
@@ -147,4 +147,5 @@ app.get('/', (req, res) => {
 
 app.listen(PORT, () => {
     console.log('El valor de JWT_SECRET es:', process.env.JWT_SECRET ? 'Cargado correctamente' : 'UNDEFINED');
+    console.log(`🚀 Servidor backend corriendo en http://localhost:${PORT}`);
 });

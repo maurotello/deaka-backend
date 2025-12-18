@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "dev": "nodemon --watch server server/index.js",
     "dev:backend": "CHOKIDAR_USEPOLLING=true nodemon --watch server server/index.js",
     "start:backend": "node server/index.js",
     "test:db": "node server/test-db.js"

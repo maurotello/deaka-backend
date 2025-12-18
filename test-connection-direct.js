@@ -9,12 +9,12 @@ const { Pool } = pg;
 console.log('🔍 Probando conexión...');
 
 const pool = new Pool({
-    user: 'postgres.olqrqsshjllxawphctmi', 
-    host: 'aws-1-us-east-1.pooler.supabase.com', 
+    user: 'postgres.fzcgajwhpoqqdcqxcjfm',
+    host: 'aws-1-us-east-1.pooler.supabase.com',
     database: 'postgres',
-    password: 'qo2nS3jmgVcgkuSr', 
+    password: 'desaTELLO123$%&',
     // ⚠️ Puerto del Transaction Pooler
-    port: 6543, 
+    port: 6543,
     ssl: {
         rejectUnauthorized: false
     },

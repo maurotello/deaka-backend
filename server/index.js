@@ -1,5 +1,4 @@
 import 'dotenv/config';
-console.log('El valor de JWT_SECRET es:', process.env.JWT_SECRET);
 
 import express from 'express';
 import cors from 'cors';

@@ -105,10 +105,17 @@ export const getMapListings = async (req, res) => {
         // $1 es FIXED_ICON_HEIGHT
         queryParams.push(FIXED_ICON_HEIGHT);
 
-        // 1. Manejo de Búsqueda
+        // 1. Manejo de Búsqueda (Título, Categoría, Subcategoría, Tipo, Tags)
         if (search && search.length > 2) {
             queryParams.push(`%${search.trim()}%`);
-            whereClauses.push(`l.title ILIKE $${queryParams.length}`);
+            const paramIndex = queryParams.length;
+            whereClauses.push(`(
+                l.title ILIKE $${paramIndex} OR
+                c.name ILIKE $${paramIndex} OR
+                parent_cat.name ILIKE $${paramIndex} OR
+                lt.name ILIKE $${paramIndex} OR
+                EXISTS (SELECT 1 FROM jsonb_array_elements_text(l.tags) tag WHERE tag ILIKE $${paramIndex})
+            )`);
         }
 
         // 2. Manejo de Filtro por Categorías
@@ -153,6 +160,7 @@ export const getMapListings = async (req, res) => {
                 ROUND((COALESCE(c.icon_original_width, 38)::numeric / COALESCE(c.icon_original_height, 38)::numeric) * $1) AS icon_calculated_width,
                 $1 AS icon_calculated_height,
                 l.cover_image_path,
+                l.details, -- 🔥 Added to include gallery_urls
                 lt.name AS listing_type_name,
                 CASE 
                     WHEN c.parent_id IS NOT NULL THEN parent_cat.name
@@ -166,7 +174,12 @@ export const getMapListings = async (req, res) => {
                 l.phone,
                 l.email,
                 l.whatsapp,
-                l.website
+                l.website,
+                l.facebook,
+                l.facebook,
+                l.instagram,
+                l.gallery_images,
+                l.tags
             FROM listings AS l
             LEFT JOIN categories AS c ON l.category_id = c.id
             LEFT JOIN categories AS parent_cat ON c.parent_id = parent_cat.id
@@ -214,7 +227,12 @@ export const getPublicListing = async (req, res) => {
                 l.phone,
                 l.email,
                 l.whatsapp,
-                l.website
+                l.website,
+                l.facebook,
+                l.facebook,
+                l.instagram,
+                l.gallery_images,
+                l.tags
             FROM listings AS l
             LEFT JOIN categories AS c ON l.category_id = c.id
             LEFT JOIN categories AS parent_cat ON c.parent_id = parent_cat.id
@@ -313,7 +331,12 @@ export const getListingForEdit = async (req, res) => {
                 l.whatsapp,
                 l.phone,
                 l.website,
+                l.facebook,
+                l.instagram,
+                l.instagram,
                 l.cover_image_path,
+                l.gallery_images,
+                l.tags,
                 l.details,
                 ST_X(l.location::geometry) AS lng,
                 ST_Y(l.location::geometry) AS lat,
@@ -355,7 +378,8 @@ export const getListingForEdit = async (req, res) => {
         res.json({
             ...fixedData,
             details: combinedDetailsForFrontend,
-            gallery_images: galleryUrls,
+            gallery_images: listingData.gallery_images || [],
+            tags: listingData.tags || [], // Return tags
             cover_image_public_id: coverImagePublicId
         });
 
@@ -393,20 +417,22 @@ export const createListing = async (req, res) => {
         dynamic_details, // 🔥 JSON string de campos variables
         phone,
         whatsapp,
-        website
+        website,
+        facebook,
+        instagram,
+        tags // 🔥 Tags field (JSON string or array)
     } = req.body;
 
     const tempId = req.tempId;
 
-    // ✅ VALIDACIÓN DE CAMPOS PRINCIPALES
-    if (!title || !category_id || !lat || !lng || !address || !province || !city || !email) {
-        console.error('❌ VALIDACIÓN FALLIDA: Faltan campos obligatorios fijos');
-        return res.status(400).json({
-            error: 'Faltan campos obligatorios para el listado o la ubicación.',
-            // ... (Detalles de campos faltantes)
-        });
+    // ✅ VALIDACIÓN    // 1. Validaciones Básicas (Solo Título, Categoría, Tipo y Ubicación son obligatorios ahora)
+    if (!title || !category_id || !listing_type_id || !lat || !lng || !address || !city || !province) {
+        return res.status(400).json({ error: 'Faltan campos obligatorios (Título, Categoría, Tipo, Ubicación).' });
     }
 
+    if (email && !isValidEmail(email)) {
+        return res.status(400).json({ error: 'Formato de email inválido.' });
+    }
     // 🛑 VALIDACIÓN DE dynamic_details
     let parsedDynamicDetails = {};
     if (dynamic_details) {
@@ -431,25 +457,23 @@ export const createListing = async (req, res) => {
 
     try {
         // 🔥 SUBIDA DE IMÁGENES A CLOUDINARY
-        let coverImageUrl = 'https://res.cloudinary.com/demo/image/upload/sample.jpg'; // Default
+        // 3. Manejo de Imagen de Portada (Opcional)
+        let coverImageUrl = null;
         let coverImagePublicId = null;
-        let galleryUrls = [];
-        let galleryPublicIds = [];
 
-        // Lógica de subida de coverImage
         if (req.files && req.files.coverImage && req.files.coverImage.length > 0) {
-            console.log('📤 Subiendo imagen de portada a Cloudinary...');
-            const coverFile = req.files.coverImage[0];
-            const result = await uploadToCloudinary(
-                coverFile.buffer,
-                `listings/${tempId || 'temp'}/coverImage`
-            );
-            coverImageUrl = result.secure_url;
-            coverImagePublicId = result.public_id;
-            console.log('✅ Imagen de portada subida:', coverImageUrl);
-        } else {
-            console.log('ℹ️ Usando imagen de portada por defecto');
+            try {
+                const coverFile = req.files.coverImage[0];
+                const result = await uploadToCloudinary(coverFile.buffer, 'listings/temp/cover');
+                coverImageUrl = result.secure_url;
+                coverImagePublicId = result.public_id;
+            } catch (uploadError) {
+                console.error('Error al subir cover image:', uploadError);
+                return res.status(500).json({ error: 'Error al subir la imagen de portada.' });
+            }
         }
+        // Si no hay imagen, coverImageUrl y coverImagePublicId quedan como null, lo cual es válido.
+        let galleryImagesArray = []; // 🔥 Nuevo array de objetos { url, public_id }
 
         // Lógica de subida de galería
         if (req.files && req.files.galleryImages && req.files.galleryImages.length > 0) {
@@ -459,10 +483,12 @@ export const createListing = async (req, res) => {
                     file.buffer,
                     `listings/${tempId || 'temp'}/gallery`
                 );
-                galleryUrls.push(result.secure_url);
-                galleryPublicIds.push(result.public_id);
+                galleryImagesArray.push({
+                    url: result.secure_url,
+                    public_id: result.public_id
+                });
             }
-            console.log('✅ Galería subida:', galleryUrls.length, 'imágenes');
+            console.log('✅ Galería subida:', galleryImagesArray.length, 'imágenes');
         }
 
         // 2. 🏗️ CONSTRUCCIÓN DEL OBJETO DETAILS (JSONB)
@@ -478,10 +504,8 @@ export const createListing = async (req, res) => {
             opening_hours: opening_hours || '',
             amenities: parsedAmenities,
 
-            // Metadatos de Cloudinary
+            // Metadatos de Cloudinary (Solo Cover, Galería va en su propia columna)
             cover_image_public_id: coverImagePublicId,
-            gallery_public_ids: galleryPublicIds,
-            gallery_urls: galleryUrls,
 
             // 🔥 CAMPOS DINÁMICOS ESPECÍFICOS
             dynamic_fields: parsedDynamicDetails,
@@ -491,11 +515,25 @@ export const createListing = async (req, res) => {
         console.log('🔍 Objeto finalDetailsJSONB construido:', detailsToStore);
 
         // 3. 🗄️ INSERTAR EN BASE DE DATOS
+
+        // Parsear tags (pueden venir como JSON string o array)
+        let finalTags = [];
+        try {
+            if (typeof tags === 'string') {
+                finalTags = JSON.parse(tags);
+            } else if (Array.isArray(tags)) {
+                finalTags = tags;
+            }
+        } catch (e) {
+            console.warn("Error parsing tags:", e);
+            finalTags = [];
+        }
+
         const query = `
             INSERT INTO listings
-            (user_id, title, category_id, listing_type_id, location, address, details, cover_image_path, status, city, province, email, description, phone, whatsapp, website)
+            (user_id, title, category_id, listing_type_id, location, address, details, cover_image_path, status, city, province, email, description, phone, whatsapp, website, facebook, instagram, gallery_images, tags)
             VALUES
-            ($1, $2, $3, $4, ST_SetSRID(ST_MakePoint($5, $6), 4326)::geography, $7, $8::jsonb, $9, 'pending', $10, $11, $12, $13, $14, $15, $16)
+            ($1, $2, $3, $4, ST_SetSRID(ST_MakePoint($5, $6), 4326)::geography, $7, $8::jsonb, $9, 'pending', $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20::jsonb)
             RETURNING id;
         `;
 
@@ -515,7 +553,11 @@ export const createListing = async (req, res) => {
             description || null,        // $13
             phone || null,              // $14
             whatsapp || null,           // $15
-            website || null             // $16
+            website || null,            // $16
+            facebook || null,           // $17
+            instagram || null,          // $18
+            JSON.stringify(galleryImagesArray), // $19 gallery_images
+            JSON.stringify(finalTags)   // $20 tags
         ];
 
         console.log('📤 Ejecutando query SQL...');
@@ -582,7 +624,7 @@ export const updateListing = async (req, res) => {
     try {
         // 1. Obtener datos antiguos y listado existente
         const listingResult = await db.query(
-            'SELECT listing_type_id, cover_image_path, details FROM listings WHERE id = $1 AND user_id = $2',
+            'SELECT listing_type_id, category_id, cover_image_path, details, gallery_images, tags FROM listings WHERE id = $1 AND user_id = $2',
             [listingId, userId]
         );
 
@@ -590,24 +632,37 @@ export const updateListing = async (req, res) => {
 
         const {
             listing_type_id: old_listing_type_id,
+            category_id: old_category_id,
             cover_image_path: oldCoverUrl,
-            details: oldDetails
+            details: oldDetails,
+            gallery_images: oldGalleryImages // 🔥 Obtenemos de la columna
         } = listingResult.rows[0];
 
         // Extraer IDs públicos antiguos del JSONB para el borrado de Cloudinary
         const oldCoverPublicId = oldDetails?.cover_image_public_id;
-        const oldGalleryPublicIds = oldDetails?.gallery_public_ids || [];
-        const oldGalleryUrls = oldDetails?.gallery_urls || [];
+        // La galería antigua ya viene en oldGalleryImages (si se migró)
 
         // 2. Extraer datos del cuerpo (incluyendo la instrucción de borrado del frontend)
         const {
-            title, category_id, lat, lng, address, city, province, description, // Columna fija
-            phone, whatsapp, website, // Columna fija
+            title, category_id: bodyCategoryId, categoryId, lat, lng, address, city, province, description, // Columna fija
+            phone, whatsapp, website, email, // Columna fija
+            facebook, instagram,
+            tags, // 🔥 Tags
             provincia_id, localidad_id, opening_hours, amenities, // Metadata
             dynamic_details, // 🔥 JSON String con los campos dinámicos
             galleryImagesToDelete, deleteCoverImagePublicId, // Cloudinary
             listingTypeId // 👈 NUEVO: ID del tipo de listado nuevo (opcional)
         } = req.body;
+
+        // Mapeo robusto para category_id
+        let current_category_id = old_category_id;
+        const requestedCategoryId = bodyCategoryId || categoryId;
+        if (requestedCategoryId) {
+            const parsedCatId = parseInt(requestedCategoryId);
+            if (!isNaN(parsedCatId)) {
+                current_category_id = parsedCatId;
+            }
+        }
 
         // Determinar el listing_type_id con el que vamos a trabajar (nuevo o viejo)
         let current_listing_type_id = old_listing_type_id;
@@ -677,38 +732,42 @@ export const updateListing = async (req, res) => {
             }
 
             // Subir la nueva imagen
-            const coverFile = req.files.coverImage[0];
-            const result = await uploadToCloudinary(
-                coverFile.buffer,
-                `listings/${listingId}/coverImage/${Date.now()}`
-            );
+            try {
+                const coverFile = req.files.coverImage[0];
+                const result = await uploadToCloudinary(
+                    coverFile.buffer,
+                    `listings/${listingId}/coverImage/${Date.now()}`
+                );
 
-            finalCoverUrl = result.secure_url;
-            finalCoverPublicId = result.public_id;
-            console.log('✅ Nueva portada subida:', finalCoverUrl);
+                finalCoverUrl = result.secure_url;
+                finalCoverPublicId = result.public_id;
+                console.log('✅ Nueva portada subida:', finalCoverUrl);
+            } catch (uploadError) {
+                console.error('❌ Error dentro de updateListing al subir cover image:', uploadError);
+                return res.status(500).json({ error: 'Error al subir la imagen de portada.', details: uploadError.message || uploadError });
+            }
         }
 
-        // 5. Lógica de Galería
-        let finalGalleryUrls = [...oldGalleryUrls];
-        let finalGalleryPublicIds = [...oldGalleryPublicIds];
-        const deletedGalleryUrls = JSON.parse(galleryImagesToDelete || '[]');
+        // 5. Lógica de Galería (Refactorizada para gallery_images column)
+        // oldGalleryImages es un array de { url, public_id }
+        // galleryImagesToDelete viene del frontend como JSON de IDs (ahora)
 
-        // 5a. Borrar imágenes de galería existentes (del frontend)
-        if (deletedGalleryUrls.length > 0) {
-            const publicIdsToDelete = oldGalleryPublicIds.filter((id, index) => deletedGalleryUrls.includes(oldGalleryUrls[index]));
+        let finalGalleryImages = Array.isArray(oldGalleryImages) ? [...oldGalleryImages] : [];
+        const publicIdsToDelete = JSON.parse(galleryImagesToDelete || '[]');
 
-            if (publicIdsToDelete.length > 0) {
-                try {
-                    await cloudinary.api.delete_resources(publicIdsToDelete);
-                    console.log(`🗑️ Galería eliminada de Cloudinary: ${publicIdsToDelete.length} imágenes.`);
-                } catch (err) {
-                    console.warn('⚠️ Error al eliminar galería de Cloudinary:', err.message);
-                }
+        // 5a. Borrar imágenes de galería existentes
+        if (publicIdsToDelete.length > 0) {
+            console.log(`🗑️ Borrando ${publicIdsToDelete.length} imágenes de galería...`);
+
+            try {
+                await cloudinary.api.delete_resources(publicIdsToDelete);
+                console.log('✅ Imágenes eliminadas de Cloudinary.');
+            } catch (err) {
+                console.warn('⚠️ Error al eliminar galería de Cloudinary:', err.message);
             }
 
-            // Actualizar arrays locales para remover las borradas
-            finalGalleryUrls = finalGalleryUrls.filter(url => !deletedGalleryUrls.includes(url));
-            finalGalleryPublicIds = finalGalleryPublicIds.filter((id, index) => !deletedGalleryUrls.includes(oldGalleryUrls[index]));
+            // Filtrar el array para quitar las borradas
+            finalGalleryImages = finalGalleryImages.filter(img => !publicIdsToDelete.includes(img.public_id));
         }
 
         // 5b. Subir nuevas imágenes de galería
@@ -718,8 +777,10 @@ export const updateListing = async (req, res) => {
                     file.buffer,
                     `listings/${listingId}/gallery`
                 );
-                finalGalleryUrls.push(result.secure_url);
-                finalGalleryPublicIds.push(result.public_id);
+                finalGalleryImages.push({
+                    url: result.secure_url,
+                    public_id: result.public_id
+                });
             }
             console.log('✅ Galería nueva subida:', req.files.galleryImages.length, 'imágenes');
         }
@@ -737,62 +798,92 @@ export const updateListing = async (req, res) => {
             opening_hours: opening_hours || '',
             amenities: parsedAmenities,
 
-            // Datos persistentes de Cloudinary
+            // Datos persistentes de Cloudinary (Solo Cover)
             cover_image_public_id: finalCoverPublicId,
-            gallery_public_ids: finalGalleryPublicIds,
-            gallery_urls: finalGalleryUrls,
+            // Galería ya no va aquí
 
             // 🔥 CAMPOS DINÁMICOS ESPECÍFICOS
             dynamic_fields: parsedDynamicDetails,
         };
 
         const detailsToStore = JSON.stringify(finalDetailsJSONB);
+        const galleryImagesToStore = JSON.stringify(finalGalleryImages);
 
+
+        // Parsear tags
+        let finalTags = []; // Si no viene nada, asumimos vacío o mantenemos lógica de reemplazo total? 
+        // En updates REST completos, lo que viene reemplaza. Si 'tags' es undefined, no se actualiza?
+        // Como usamos un solo UPDATE gigante, debemos decidir. 
+        // Opcion A: Si viene 'tags' en el body, lo usamos. Si no, usamos el viejo (que tendriamos que haber traido en el SELECT inicial).
+
+        // 1b. Obtener tags antiguos (necesitamos agregarlo al SELECT del inicio de updateListing)
+        // NOTA: Para no complicar con más queries, simplemente asumimos que el frontend siempre manda el estado completo de 'tags'.
+
+        try {
+            if (typeof tags === 'string') {
+                finalTags = JSON.parse(tags);
+            } else if (Array.isArray(tags)) {
+                finalTags = tags;
+            } else if (tags === undefined && listingResult.rows[0].tags) {
+                finalTags = listingResult.rows[0].tags; // Mantener existente si no se envia nada (por seguridad, aunque el form deberia mandarlo)
+            }
+        } catch (e) {
+            console.warn("Error parsing tags in update:", e);
+            finalTags = [];
+        }
 
         // 7. Actualizar el registro en la base de datos
         await db.query(`
             UPDATE listings SET
                 title = $1,
                 category_id = $2,
-                description = $3,
-                phone = $4,
-                whatsapp = $5,
-                website = $6,
-                details = $7::jsonb,
-                location = ST_SetSRID(ST_MakePoint($8, $9), 4326)::geography,
-                address = $10,
-                cover_image_path = $11,
-                city = $12,
-                province = $13,
-                email = $14,
-                listing_type_id = $17,
-                updated_at = NOW()
-            WHERE id = $15 AND user_id = $16
+                listing_type_id = $3,
+                location = ST_SetSRID(ST_MakePoint($4, $5), 4326)::geography,
+                address = $6,
+                city = $7,
+                province = $8,
+                email = $9,
+                phone = $10,
+                whatsapp = $11,
+                website = $12,
+                description = $13,
+                details = $14::jsonb,
+                cover_image_path = $15,
+                cover_image_public_id = $16,
+                facebook = $17,
+                instagram = $18,
+                gallery_images = $19::jsonb,
+                tags = $20::jsonb
+            WHERE id = $21 AND user_id = $22
         `, [
-            title,                          // $1
-            parseInt(category_id) || null,  // $2 (Robust Parse)
-            description || null,            // $3 (Columna Fija)
-            phone || null,                  // $4 (Columna Fija)
-            whatsapp || null,               // $5 (Columna Fija)
-            website || null,                // $6 (Columna Fija)
-            detailsToStore,                 // $7 (JSONB)
-            parseFloat(lng),                // $8 (para ST_MakePoint)
-            parseFloat(lat),                // $9 (para ST_MakePoint)
-            address,                        // $10
-            finalCoverUrl,                  // $11
-            city,                           // $12
-            province,                       // $13
-            email,                          // $14
-            listingId,                      // $15
-            userId,                         // $16
-            current_listing_type_id         // $17 (Nuevo Tipo de Listado)
+            title,
+            current_category_id,
+            current_listing_type_id,
+            lng, lat,
+            address,
+            city,
+            province,
+            email,
+            phone,
+            whatsapp,
+            website,
+            description,
+            detailsToStore,
+            finalCoverUrl,
+            finalCoverPublicId,
+            facebook || null,
+            instagram || null,
+            galleryImagesToStore,
+            JSON.stringify(finalTags),
+            listingId,
+            userId
         ]);
 
         console.log(`✅ Listado ${listingId} actualizado con éxito.`);
         res.status(200).json({ message: 'Listado actualizado con éxito.' });
 
     } catch (error) {
-        console.error(`❌ Error al actualizar el listado ${listingId}:`, error);
+        console.error(`❌ Error al actualizar el listado ${listingId}: `, error);
         res.status(500).json({ error: 'Error interno del servidor.', details: error.message });
     }
 };
@@ -807,12 +898,12 @@ export const updateListingStatus = async (req, res) => {
 
     try {
         const query = `UPDATE listings SET status = $1, updated_at = CURRENT_TIMESTAMP
-            WHERE id = $2 RETURNING id, status;`;
+            WHERE id = $2 RETURNING id, status; `;
         const result = await db.query(query, [status, listingId]);
         if (result.rowCount === 0) {
             return res.status(404).json({ error: 'Listado no encontrado.' });
         }
-        res.status(200).json({ message: `Estado del listado ${listingId} actualizado a ${status}` });
+        res.status(200).json({ message: `Estado del listado ${listingId} actualizado a ${status} ` });
     } catch (error) {
         console.error('Error al actualizar el estado:', error);
         res.status(500).json({ error: 'Error interno del servidor.' });
@@ -864,7 +955,7 @@ export const deleteListing = async (req, res) => {
 
         // 🔥 Eliminar carpeta completa (limpieza)
         try {
-            await cloudinary.api.delete_folder(`listings/${listingId}`);
+            await cloudinary.api.delete_folder(`listings / ${listingId} `);
             console.log('✅ Carpeta eliminada de Cloudinary');
         } catch (err) {
             console.warn('⚠️ Error al eliminar carpeta:', err.message);
@@ -881,7 +972,7 @@ export const deleteListing = async (req, res) => {
         res.status(200).json({ message: 'Listado y archivos asociados eliminados con éxito.' });
 
     } catch (error) {
-        console.error(`Error al eliminar el listado ${listingId}:`, error);
+        console.error(`Error al eliminar el listado ${listingId}: `, error);
         res.status(500).json({ error: 'Error interno del servidor al eliminar el listado.' });
     }
 };

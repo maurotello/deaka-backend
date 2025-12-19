@@ -10,11 +10,17 @@ import { v2 as cloudinary } from 'cloudinary';
 import { CloudinaryStorage } from 'multer-storage-cloudinary';
 
 // Configurar Cloudinary
-cloudinary.config({
+const cloudConfig = {
     cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
     api_key: process.env.CLOUDINARY_API_KEY,
     api_secret: process.env.CLOUDINARY_API_SECRET,
-});
+};
+
+console.log('🔧 [Cloudinary Config] Cloud Name:', cloudConfig.cloud_name || 'MISSING');
+console.log('🔧 [Cloudinary Config] API Key:', cloudConfig.api_key ? '***' + cloudConfig.api_key.slice(-4) : 'MISSING');
+console.log('🔧 [Cloudinary Config] API Secret:', cloudConfig.api_secret ? 'EXISTS' : 'MISSING');
+
+cloudinary.config(cloudConfig);
 
 // Storage para la imagen de portada
 export const coverImageStorage = new CloudinaryStorage({
